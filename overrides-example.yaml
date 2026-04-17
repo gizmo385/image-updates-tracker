@@ -1,0 +1,25 @@
+# Manual mappings from Docker image names to GitHub owner/repo.
+# Used for images where automatic detection (OCI labels, GHCR) doesn't work.
+#
+# The key is the image name WITHOUT the tag (e.g., "postgres" not "postgres:16").
+# The value is the GitHub "owner/repo".
+#
+# Examples:
+#   postgres: postgres/postgres
+#   redis: redis/redis
+#   nginx: nginx/nginx
+
+overrides:
+  nextcloud: nextcloud/server
+  redis: redis/redis
+  # GitHub repo name differs from image name
+  home-assistant/home-assistant: home-assistant/core
+  # Multiple immich images share one repo
+  immich-app/immich-server: immich-app/immich
+  immich-app/machine-learning: immich-app/immich
+
+names:
+  home-assistant/core: Home Assistant
+  immich-app/immich: Immich
+  nextcloud/server: Nextcloud
+  redis/redis: Redis

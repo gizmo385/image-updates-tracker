@@ -1,0 +1,14 @@
+[project]
+name = "docker-release-feeds"
+version = "0.1.0"
+description = "Serve a dynamic OPML feed of GitHub release notes for running Docker services"
+requires-python = ">=3.12"
+dependencies = [
+    "discord.py>=2.4,<3",
+    "docker>=7.0,<8",
+    "flask>=3.0,<4",
+    "gunicorn>=22.0,<24",
+    "httpx>=0.27,<1",
+    "packaging>=24.0",
+    "pyyaml>=6.0,<7",
+]
