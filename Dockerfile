@@ -8,6 +8,7 @@ COPY pyproject.toml .
 RUN uv sync --no-dev --no-install-project
 
 COPY docker_release_feeds.py github_releases.py version.py update_cache.py server.py ./
+COPY templates/ templates/
 COPY overrides.yaml /config/overrides.yaml
 
 EXPOSE 8585

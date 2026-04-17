@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Service Updates</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #e0e0e0; background: #121212; }
+    h2 { margin-top: 2rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+    th, td { text-align: left; padding: .4rem .8rem; border-bottom: 1px solid #2e2e2e; }
+    th { background: #1e1e1e; }
+    a { color: #58a6ff; }
+    .badge { background: #cf222e; color: #fff; padding: .15rem .5rem; border-radius: 4px; font-size: .85rem; margin-left: .4rem; }
+    .meta { color: #888; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <h1>Docker Service Updates</h1>
+  <p class="meta">Last checked: {{ updated_str }} &mdash; <a href="/feeds.opml">OPML feed</a></p>
+
+  <h2>Updates Available <span class="badge">{{ with_updates | length }}</span></h2>
+  <table>
+    <thead><tr><th>Service</th><th>Version</th><th>Releases behind</th></tr></thead>
+    <tbody>
+      {% if with_updates %}
+        {% for s in with_updates %}
+        <tr>
+          <td><a href="{{ s.html_url }}">{{ s.name }}</a></td>
+          <td>{{ s.current_version }} &rarr; {{ s.latest_version }}</td>
+          <td>{{ s.releases | length }} release{{ 's' if s.releases | length != 1 else '' }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="3">All services are up to date.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <h2>Up to Date</h2>
+  <table>
+    <thead><tr><th>Service</th><th>Version</th></tr></thead>
+    <tbody>
+      {% if up_to_date %}
+        {% for s in up_to_date %}
+        <tr>
+          <td>{{ s.name }}</td>
+          <td>{{ s.current_version }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="2">No services tracked.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</body>
+</html>
