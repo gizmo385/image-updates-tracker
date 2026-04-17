@@ -60,7 +60,7 @@ cp .env.example .env
 ```yaml
 services:
   image-tracker:
-    image: ghcr.io/youruser/image-updates-tracker:latest
+    image: ghcr.io/gizmo385/image-updates-tracker:main
     ports:
       - "8585:8585"
     volumes:
@@ -69,7 +69,7 @@ services:
     env_file: .env
 
   image-tracker-bot:
-    image: ghcr.io/youruser/image-updates-tracker-bot:latest
+    image: ghcr.io/gizmo385/image-updates-tracker-bot:main
     volumes:
       - ./overrides.yaml:/config/overrides.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
