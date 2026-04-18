@@ -58,6 +58,7 @@ async def get_releases_since(
     owner: str,
     repo: str,
     current_version: str,
+    include_prereleases: bool = False,
 ) -> list[Release]:
     """Fetch all GitHub releases newer than current_version.
 
@@ -99,6 +100,9 @@ async def get_releases_since(
 
         for r in releases:
             tag = r.get("tag_name", "")
+
+            if not include_prereleases and r.get("prerelease", False):
+                continue
 
             # Found the current version — we're done
             if _is_same(tag, current_version):

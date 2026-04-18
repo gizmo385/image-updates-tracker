@@ -91,6 +91,7 @@ def _best_version_from_tags(tags: list[str]) -> str | None:
 async def resolve_version_from_registry(
     image: str,
     client: httpx.AsyncClient,
+    docker_client: "docker.DockerClient | None" = None,
 ) -> str | None:
     """Resolve the running version of an image via Docker Hub tag-by-digest lookup.
 
@@ -106,8 +107,8 @@ async def resolve_version_from_registry(
     """
     # 1. Get the manifest list digest that Docker stored when the image was pulled
     try:
-        docker_client = docker.from_env()
-        img = docker_client.images.get(image)
+        dc = docker_client or docker.from_env()
+        img = dc.images.get(image)
         repo_digests: list[str] = img.attrs.get("RepoDigests") or []
     except Exception as e:
         logger.debug("Could not inspect image %s: %s", image, e)

@@ -51,10 +51,10 @@ def load_names(path: Path) -> dict[str, str]:
     return data.get("names", {})
 
 
-def get_running_images() -> list[str]:
+def get_running_images(docker_client: docker.DockerClient | None = None) -> list[str]:
     """Get the list of images from running Docker containers."""
     try:
-        client = docker.from_env()
+        client = docker_client or docker.from_env()
         containers = client.containers.list()
     except docker.errors.DockerException as e:
         logger.error("Failed to connect to Docker: %s", e)
@@ -88,10 +88,10 @@ def resolve_from_overrides(image: str, overrides: dict[str, str]) -> str | None:
     return overrides.get(stripped)
 
 
-def resolve_from_oci_labels(image: str) -> str | None:
+def resolve_from_oci_labels(image: str, docker_client: docker.DockerClient | None = None) -> str | None:
     """Try to extract a GitHub repo from OCI image labels."""
     try:
-        client = docker.from_env()
+        client = docker_client or docker.from_env()
         img = client.images.get(image)
         labels = img.labels or {}
     except (docker.errors.ImageNotFound, docker.errors.APIError):
@@ -127,7 +127,7 @@ def _extract_github_repo(url: str) -> str | None:
     return None
 
 
-def resolve_image(image: str, overrides: dict[str, str]) -> str | None:
+def resolve_image(image: str, overrides: dict[str, str], docker_client: docker.DockerClient | None = None) -> str | None:
     """Resolve a Docker image to a GitHub 'owner/repo' string.
 
     Tries overrides first, then OCI labels, then GHCR heuristic.
@@ -136,7 +136,7 @@ def resolve_image(image: str, overrides: dict[str, str]) -> str | None:
         logger.debug("Resolved %s via override -> %s", image, repo)
         return repo
 
-    if repo := resolve_from_oci_labels(image):
+    if repo := resolve_from_oci_labels(image, docker_client=docker_client):
         logger.debug("Resolved %s via OCI labels -> %s", image, repo)
         return repo
 
@@ -151,14 +151,15 @@ def resolve_image(image: str, overrides: dict[str, str]) -> str | None:
 def discover_feeds(overrides_path: Path) -> list[ServiceFeed]:
     """Discover running containers and resolve them to release feeds."""
     overrides = load_overrides(overrides_path)
-    images = get_running_images()
+    docker_client = docker.from_env()
+    images = get_running_images(docker_client=docker_client)
     logger.info("Found %d unique running images", len(images))
 
     feeds: list[ServiceFeed] = []
     seen_repos: set[str] = set()
 
     for image in images:
-        repo_str = resolve_image(image, overrides)
+        repo_str = resolve_image(image, overrides, docker_client=docker_client)
         if not repo_str:
             continue
         if repo_str in seen_repos:

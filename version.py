@@ -23,14 +23,14 @@ def _tag_from_image(image: str) -> str | None:
     return None if tag in _NON_VERSION_TAGS else tag
 
 
-def get_current_version(image: str) -> str | None:
+def get_current_version(image: str, docker_client: docker.DockerClient | None = None) -> str | None:
     """Get the running version of a Docker image.
 
     Tries the org.opencontainers.image.version OCI label first,
     then falls back to the image tag if it looks like a version.
     """
     try:
-        client = docker.from_env()
+        client = docker_client or docker.from_env()
         img = client.images.get(image)
         labels = img.labels or {}
     except (docker.errors.ImageNotFound, docker.errors.APIError) as e:

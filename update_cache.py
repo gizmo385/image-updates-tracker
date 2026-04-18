@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import docker
 import httpx
 
 from docker_release_feeds import get_running_images, load_names, load_overrides, resolve_image
@@ -66,8 +67,9 @@ async def fetch(
     """
     overrides = load_overrides(overrides_path)
     names = load_names(overrides_path)
+    docker_client = docker.from_env()
     if images is None:
-        images = get_running_images()
+        images = get_running_images(docker_client=docker_client)
 
     async with httpx.AsyncClient() as client:
         # Resolve images to repos, deduplicated by repo name.
@@ -75,13 +77,16 @@ async def fetch(
         # a Docker Hub digest lookup to find the actual running version.
         seen: dict[str, tuple[str, str, str]] = {}  # repo -> (owner, repo, version)
         for image in images:
-            repo_str = resolve_image(image, overrides)
+            repo_str = resolve_image(image, overrides, docker_client=docker_client)
             if not repo_str:
                 continue
             owner, repo = repo_str.split("/", 1)
             if repo in seen:
                 continue
-            version = await resolve_version_from_registry(image, client) or get_current_version(image)
+            version = (
+                await resolve_version_from_registry(image, client, docker_client=docker_client)
+                or get_current_version(image, docker_client=docker_client)
+            )
             if not version:
                 continue
             seen[repo] = (owner, repo, version)
