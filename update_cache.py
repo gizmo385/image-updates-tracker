@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-from packaging.version import InvalidVersion, Version
 
 from docker_release_feeds import get_running_images, load_names, load_overrides, resolve_image
 from github_releases import Release, get_releases_since
@@ -56,25 +55,6 @@ def _set(services: dict[str, ServiceStatus]) -> None:
         _last_updated = time.time()
 
 
-def _is_semver(version: str) -> bool:
-    """Return True if version is a specific (non-floating) semver version.
-
-    A bare major version like "2" or "v2" is treated as a floating tag rather
-    than a specific release, so registry lookup will be tried to find the real
-    version (e.g. "2.21.0") from the image digest.
-    """
-    normalized = version
-    for prefix in ("v", "release-", "release/"):
-        if normalized.lower().startswith(prefix):
-            normalized = normalized[len(prefix):]
-            break
-    try:
-        Version(normalized)
-        return "." in normalized
-    except InvalidVersion:
-        return False
-
-
 async def fetch(
     overrides_path: Path,
     images: list[str] | None = None,
@@ -101,11 +81,7 @@ async def fetch(
             owner, repo = repo_str.split("/", 1)
             if repo in seen:
                 continue
-            version = get_current_version(image)
-            if not version or not _is_semver(version):
-                resolved = await resolve_version_from_registry(image, client)
-                if resolved:
-                    version = resolved
+            version = await resolve_version_from_registry(image, client) or get_current_version(image)
             if not version:
                 continue
             seen[repo] = (owner, repo, version)
