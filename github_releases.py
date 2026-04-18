@@ -65,6 +65,15 @@ async def get_releases_since(
     the current version or exhaust all pages. Returns releases in
     newest-first order.
     """
+    # If current_version isn't valid semver, we can only stop on an exact tag
+    # match — and a flavour tag like "alpine" will never match a semver release,
+    # causing the loop to exhaust all 10 pages. Bail out early instead.
+    try:
+        Version(_normalize_version(current_version))
+        current_is_semver = True
+    except InvalidVersion:
+        current_is_semver = False
+
     newer: list[Release] = []
     page = 1
 
@@ -112,8 +121,19 @@ async def get_releases_since(
                 # We've gone past the current version
                 return newer
             else:
-                # Non-semver: include it (we're walking newest to oldest,
-                # and haven't hit an exact match yet)
+                # Non-semver release tag: include it only if we can meaningfully
+                # determine ordering (i.e. current_version is valid semver).
+                # If current_version itself is non-semver we have no basis for
+                # comparison and will never find a stopping point, so bail out.
+                if not current_is_semver:
+                    logger.warning(
+                        "Skipping releases for %s/%s: current version %r is not "
+                        "valid semver and no exact tag match found",
+                        owner,
+                        repo,
+                        current_version,
+                    )
+                    return []
                 newer.append(
                     Release(
                         tag=tag,

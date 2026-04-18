@@ -4,7 +4,14 @@ import docker
 
 logger = logging.getLogger(__name__)
 
-_NON_VERSION_TAGS = {"latest", "stable", "main", "master", "edge", "dev", "nightly", "release"}
+_NON_VERSION_TAGS = {
+    "latest", "stable", "main", "master", "edge", "dev", "nightly", "release",
+    # Distro/variant flavour tags — not version identifiers
+    "alpine",
+    "bookworm", "bullseye", "buster", "stretch",
+    "jammy", "focal", "bionic",
+    "slim",
+}
 
 
 def _tag_from_image(image: str) -> str | None:

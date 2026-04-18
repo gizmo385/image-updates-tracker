@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+from packaging.version import InvalidVersion, Version
 
 from docker_release_feeds import get_running_images, load_names, load_overrides, resolve_image
 from github_releases import Release, get_releases_since
+from registry import resolve_version_from_registry
 from version import get_current_version
 
 logger = logging.getLogger(__name__)
@@ -54,27 +56,61 @@ def _set(services: dict[str, ServiceStatus]) -> None:
         _last_updated = time.time()
 
 
-async def _fetch(overrides_path: Path) -> dict[str, ServiceStatus]:
+def _is_semver(version: str) -> bool:
+    """Return True if version is a specific (non-floating) semver version.
+
+    A bare major version like "2" or "v2" is treated as a floating tag rather
+    than a specific release, so registry lookup will be tried to find the real
+    version (e.g. "2.21.0") from the image digest.
+    """
+    normalized = version
+    for prefix in ("v", "release-", "release/"):
+        if normalized.lower().startswith(prefix):
+            normalized = normalized[len(prefix):]
+            break
+    try:
+        Version(normalized)
+        return "." in normalized
+    except InvalidVersion:
+        return False
+
+
+async def fetch(
+    overrides_path: Path,
+    images: list[str] | None = None,
+) -> dict[str, ServiceStatus]:
+    """Fetch update status for all services.
+
+    If *images* is given, check those specific image references instead of
+    discovering images from running Docker containers.
+    """
     overrides = load_overrides(overrides_path)
     names = load_names(overrides_path)
-    images = get_running_images()
+    if images is None:
+        images = get_running_images()
 
-    # Resolve images to repos, deduplicated by repo name
-    seen: dict[str, tuple[str, str, str]] = {}  # repo -> (owner, repo, version)
-    for image in images:
-        repo_str = resolve_image(image, overrides)
-        if not repo_str:
-            continue
-        owner, repo = repo_str.split("/", 1)
-        if repo in seen:
-            continue
-        version = get_current_version(image)
-        if not version:
-            continue
-        seen[repo] = (owner, repo, version)
-
-    items = list(seen.values())
     async with httpx.AsyncClient() as client:
+        # Resolve images to repos, deduplicated by repo name.
+        # For images whose tag isn't a version (e.g. redis:alpine), fall back to
+        # a Docker Hub digest lookup to find the actual running version.
+        seen: dict[str, tuple[str, str, str]] = {}  # repo -> (owner, repo, version)
+        for image in images:
+            repo_str = resolve_image(image, overrides)
+            if not repo_str:
+                continue
+            owner, repo = repo_str.split("/", 1)
+            if repo in seen:
+                continue
+            version = get_current_version(image)
+            if not version or not _is_semver(version):
+                resolved = await resolve_version_from_registry(image, client)
+                if resolved:
+                    version = resolved
+            if not version:
+                continue
+            seen[repo] = (owner, repo, version)
+
+        items = list(seen.values())
         releases_list = await asyncio.gather(*[
             get_releases_since(client, owner, repo, version)
             for owner, repo, version in items
@@ -92,7 +128,7 @@ async def _fetch(overrides_path: Path) -> dict[str, ServiceStatus]:
 async def refresh_async(overrides_path: Path) -> None:
     """Refresh the cache (async — for use in the discord bot)."""
     try:
-        services = await _fetch(overrides_path)
+        services = await fetch(overrides_path)
         _set(services)
         logger.info("Cache refreshed: %d services checked", len(services))
     except Exception:
