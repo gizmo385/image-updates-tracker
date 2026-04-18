@@ -4,7 +4,7 @@ import docker
 import httpx
 from packaging.version import InvalidVersion, Version
 
-from version import _NON_VERSION_TAGS
+from version import _NON_VERSION_TAGS, normalize_version
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +44,30 @@ def _parse_repo_digest(repo_digest: str) -> tuple[str, str, str] | None:
     return namespace, repo, digest
 
 
+def _is_flavor(segment: str) -> bool:
+    """Check if a tag segment is a distro/variant flavour identifier.
+
+    Matches both exact names ("alpine") and versioned variants ("alpine3.22").
+    """
+    lower = segment.lower()
+    for f in _NON_VERSION_TAGS:
+        if lower == f:
+            return True
+        # Match versioned variants like "alpine3.22", "bullseye2"
+        if lower.startswith(f) and len(lower) > len(f) and lower[len(f)].isdigit():
+            return True
+    return False
+
+
 def _strip_flavor_suffix(tag: str) -> str:
     """Strip trailing distro/variant components from a tag.
 
-    "8.0.0-alpine"       → "8.0.0"
-    "8.0-bookworm-slim"  → "8.0"
+    "8.0.0-alpine"        → "8.0.0"
+    "8.0.0-alpine3.22"    → "8.0.0"
+    "8.0-bookworm-slim"   → "8.0"
     """
     parts = tag.split("-")
-    while parts and parts[-1].lower() in _NON_VERSION_TAGS:
+    while parts and _is_flavor(parts[-1]):
         parts.pop()
     return "-".join(parts)
 
@@ -69,12 +85,7 @@ def _best_version_from_tags(tags: list[str]) -> str | None:
         stripped = _strip_flavor_suffix(tag)
         if not stripped or stripped in _NON_VERSION_TAGS:
             continue
-        # Mirror the prefix-stripping done in github_releases._normalize_version
-        normalized = stripped
-        for prefix in ("v", "release-", "release/"):
-            if normalized.lower().startswith(prefix):
-                normalized = normalized[len(prefix):]
-                break
+        normalized = normalize_version(stripped)
         try:
             candidates.append((Version(normalized), stripped))
         except InvalidVersion:

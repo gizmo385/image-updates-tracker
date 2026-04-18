@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import httpx
 from packaging.version import InvalidVersion, Version
 
+from version import normalize_version
+
 logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
@@ -19,22 +21,14 @@ class Release:
     url: str
 
 
-def _normalize_version(tag: str) -> str:
-    """Strip common prefixes like 'v' or 'release-' from a version tag."""
-    for prefix in ("v", "release-", "release/"):
-        if tag.lower().startswith(prefix):
-            tag = tag[len(prefix) :]
-    return tag
-
-
 def _is_newer(release_tag: str, current_version: str) -> bool | None:
     """Check if release_tag is strictly newer than current_version.
 
     Returns None if versions can't be compared (non-semver).
     """
     try:
-        release_v = Version(_normalize_version(release_tag))
-        current_v = Version(_normalize_version(current_version))
+        release_v = Version(normalize_version(release_tag))
+        current_v = Version(normalize_version(current_version))
         return release_v > current_v
     except InvalidVersion:
         return None
@@ -42,7 +36,7 @@ def _is_newer(release_tag: str, current_version: str) -> bool | None:
 
 def _is_same(release_tag: str, current_version: str) -> bool:
     """Check if a release tag matches the current version."""
-    return _normalize_version(release_tag) == _normalize_version(current_version)
+    return normalize_version(release_tag) == normalize_version(current_version)
 
 
 def _github_headers() -> dict[str, str]:
@@ -70,7 +64,7 @@ async def get_releases_since(
     # match — and a flavour tag like "alpine" will never match a semver release,
     # causing the loop to exhaust all 10 pages. Bail out early instead.
     try:
-        Version(_normalize_version(current_version))
+        Version(normalize_version(current_version))
         current_is_semver = True
     except InvalidVersion:
         current_is_semver = False

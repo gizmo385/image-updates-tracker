@@ -14,6 +14,14 @@ _NON_VERSION_TAGS = {
 }
 
 
+def normalize_version(tag: str) -> str:
+    """Strip common prefixes like 'v' or 'release-' from a version tag."""
+    for prefix in ("v", "release-", "release/"):
+        if tag.lower().startswith(prefix):
+            tag = tag[len(prefix):]
+    return tag
+
+
 def _tag_from_image(image: str) -> str | None:
     """Extract the tag from an image reference, ignoring non-version tags and digests."""
     image = image.split("@")[0]
