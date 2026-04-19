@@ -4,10 +4,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --no-install-project
 
-COPY docker_release_feeds.py github_releases.py version.py update_cache.py server.py ./
+COPY *.py ./
 COPY templates/ templates/
 
 EXPOSE 8585

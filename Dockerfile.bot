@@ -4,9 +4,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --no-install-project
 
-COPY docker_release_feeds.py version.py github_releases.py update_cache.py digest.py discord_bot.py ./
+COPY *.py ./
 
 CMD ["uv", "run", "python", "discord_bot.py"]
