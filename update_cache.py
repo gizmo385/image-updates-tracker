@@ -8,7 +8,7 @@ from pathlib import Path
 import docker
 import httpx
 
-from docker_release_feeds import get_running_images, load_names, load_overrides, resolve_image
+from docker_release_feeds import get_running_images, load_ignored, load_names, load_overrides, resolve_image
 from github_releases import Release, get_releases_since
 from registry import resolve_version_from_registry
 from version import get_current_version
@@ -67,6 +67,7 @@ async def fetch(
     """
     overrides = load_overrides(overrides_path)
     names = load_names(overrides_path)
+    ignored = load_ignored(overrides_path)
     docker_client = docker.from_env()
     if images is None:
         images = get_running_images(docker_client=docker_client)
@@ -79,6 +80,9 @@ async def fetch(
         for image in images:
             repo_str = resolve_image(image, overrides, docker_client=docker_client)
             if not repo_str:
+                continue
+            if repo_str in ignored:
+                logger.debug("Skipping ignored repo %s", repo_str)
                 continue
             owner, repo = repo_str.split("/", 1)
             if repo in seen:

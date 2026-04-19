@@ -51,6 +51,19 @@ def load_names(path: Path) -> dict[str, str]:
     return data.get("names", {})
 
 
+def load_ignored(path: Path) -> set[str]:
+    """Load the list of ignored repos from the overrides YAML file.
+
+    Returns a set of 'owner/repo' strings that should be skipped
+    during update checking.
+    """
+    if not path.exists():
+        return set()
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return set(data.get("ignore", []))
+
+
 def get_running_images(docker_client: docker.DockerClient | None = None) -> list[str]:
     """Get the list of images from running Docker containers."""
     try:
