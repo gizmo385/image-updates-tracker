@@ -1,5 +1,8 @@
+import json
 import logging
 import os
+import re
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -9,6 +12,23 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b")
+
+
+@dataclass
+class ServiceDigest:
+    """Structured summary for a single service."""
+
+    summary: str
+    breaking_changes: str = "None"
+    security_fixes: str = "None"
+
+
+@dataclass
+class OverallDigest:
+    """Structured summary across all services."""
+
+    alerts: str = "None"
+    services: dict[str, str] = field(default_factory=dict)
 
 
 async def _chat(client: httpx.AsyncClient, prompt: str) -> str:
@@ -29,6 +49,30 @@ async def _chat(client: httpx.AsyncClient, prompt: str) -> str:
     return resp.json()["message"]["content"]
 
 
+def _extract_json(text: str) -> dict | None:
+    """Extract a JSON object from LLM output, handling markdown code blocks."""
+    # Try to find JSON in a code block first
+    match = re.search(r"```(?:json)?\s*(\{.*?})\s*```", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+    # Try parsing the whole text as JSON
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Try finding a top-level JSON object
+    match = re.search(r"\{.*}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
 def _format_release_notes(releases: list[Release]) -> str:
     """Combine release notes into a single text block for the LLM."""
     parts = []
@@ -42,8 +86,8 @@ async def summarize_service(
     service_name: str,
     current_version: str,
     releases: list[Release],
-) -> str:
-    """Generate a detailed summary for a single service's pending updates."""
+) -> ServiceDigest:
+    """Generate a structured summary for a single service's pending updates."""
     notes = _format_release_notes(releases)
     latest_tag = releases[0].tag if releases else "unknown"
 
@@ -55,22 +99,32 @@ Here are the release notes (newest first):
 
 {notes}
 
-Please provide:
-1. A concise summary of what changed across these releases (2-4 sentences)
-2. A "Breaking Changes" section listing any breaking changes (or "None" if there are none)
-3. A "Security Fixes" section listing any security-related fixes (or "None" if there are none)
+Respond with ONLY a JSON object (no other text) with these keys:
+- "summary": a concise 2-4 sentence overview of what changed
+- "breaking_changes": breaking changes as a short bulleted list, or "None"
+- "security_fixes": security-related fixes as a short bulleted list, or "None"
 
-Keep the response concise and focused. Use markdown formatting."""
+Do NOT use markdown headers. Use plain text with **bold** for emphasis if needed."""
 
-    return await _chat(client, prompt)
+    raw = await _chat(client, prompt)
+    data = _extract_json(raw)
+    if data:
+        return ServiceDigest(
+            summary=data.get("summary", raw),
+            breaking_changes=data.get("breaking_changes", "None"),
+            security_fixes=data.get("security_fixes", "None"),
+        )
+    # Fallback: put the whole response in summary
+    return ServiceDigest(summary=raw)
 
 
 async def summarize_all(
     client: httpx.AsyncClient,
     services: dict[str, tuple[str, list[Release]]],
-) -> str:
-    """Generate a digest across all services with pending updates in a single LLM call."""
+) -> OverallDigest:
+    """Generate a structured digest across all services with pending updates."""
     parts = []
+    service_names = list(services.keys())
     for name, (current_version, releases) in services.items():
         latest = releases[0].tag if releases else "unknown"
         notes = _format_release_notes(releases)
@@ -85,10 +139,21 @@ async def summarize_all(
 
 {all_notes}
 
-Provide a concise digest with:
-1. Any breaking changes or security fixes that need attention (or "None")
-2. One sentence per service summarizing what changed
+Respond with ONLY a JSON object (no other text) with these keys:
+- "services": an object mapping each service name to a 1-3 sentence summary of the notable changes in the update (bug fixes, new features, improvements, dependency updates, etc.)
+- "alerts": any breaking changes or security fixes needing immediate attention as a short summary, or "None" if there are none
 
-Use markdown. Be brief."""
+The service names MUST be exactly: {json.dumps(service_names)}
 
-    return await _chat(client, prompt)
+Every service has changes — always summarize what actually changed based on the release notes. Never say "no changes" unless the release notes are truly empty.
+Do NOT use markdown headers. Use plain text with **bold** for emphasis if needed."""
+
+    raw = await _chat(client, prompt)
+    data = _extract_json(raw)
+    if data and "services" in data:
+        return OverallDigest(
+            alerts=data.get("alerts", "None"),
+            services=data.get("services", {}),
+        )
+    # Fallback: put the whole response in alerts with empty services
+    return OverallDigest(alerts=raw, services={name: "" for name in service_names})

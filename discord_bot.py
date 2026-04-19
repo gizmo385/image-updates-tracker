@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import tasks
 
 import update_cache
-from digest import summarize_all, summarize_service
+from digest import OverallDigest, ServiceDigest, summarize_all, summarize_service
 
 logger = logging.getLogger(__name__)
 
@@ -92,14 +92,26 @@ async def _handle_single_service(
         )
         return
 
-    summary = await summarize_service(client, status.name, status.current_version, status.releases)
+    result = await summarize_service(client, status.name, status.current_version, status.releases)
 
     embed = discord.Embed(
         title=f"{status.name} — Update Digest",
-        description=summary,
         color=discord.Color.blue(),
         url=status.html_url,
     )
+    embed.add_field(name="Summary", value=result.summary[:1024], inline=False)
+    if result.breaking_changes and result.breaking_changes != "None":
+        embed.add_field(
+            name="Breaking Changes",
+            value=result.breaking_changes[:1024],
+            inline=False,
+        )
+    if result.security_fixes and result.security_fixes != "None":
+        embed.add_field(
+            name="Security Fixes",
+            value=result.security_fixes[:1024],
+            inline=False,
+        )
     embed.set_footer(
         text=f"Running: {status.current_version} → Latest: {status.latest_version} ({len(status.releases)} releases behind)"
     )
@@ -121,13 +133,21 @@ async def _handle_overall_digest(
         await interaction.followup.send("All services are up to date!")
         return
 
-    overall = await summarize_all(client, services_with_updates)
+    result = await summarize_all(client, services_with_updates)
 
     embed = discord.Embed(
         title="Docker Services — Update Digest",
-        description=overall,
         color=discord.Color.gold(),
     )
+    if result.alerts and result.alerts != "None":
+        embed.add_field(
+            name="Alerts",
+            value=result.alerts[:1024],
+            inline=False,
+        )
+    for name, summary in result.services.items():
+        if summary:
+            embed.add_field(name=name, value=summary[:1024], inline=False)
     embed.set_footer(
         text=f"{len(services_with_updates)} of {len(cached)} services have pending updates"
     )
