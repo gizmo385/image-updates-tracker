@@ -138,8 +138,12 @@ async def resolve_version_from_registry(
 
     # 2. Use the original image tag as a substring filter to limit API pages.
     #    "redis:alpine" → filter "alpine"; "redis:8.0.0-alpine" → filter "8.0.0-alpine"
+    #    Tags like "latest" or "stable" are skipped as filters — they won't
+    #    match the versioned co-digest tags we're actually looking for.
     raw_tag = image.split("@")[0]
     tag_filter = raw_tag.rsplit(":", 1)[1] if ":" in raw_tag else None
+    if tag_filter and tag_filter in _NON_VERSION_TAGS:
+        tag_filter = None
 
     logger.debug(
         "Image %s: searching Docker Hub %s/%s for digest %s (filter=%r)",

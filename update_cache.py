@@ -76,7 +76,7 @@ async def fetch(
         # Resolve images to repos, deduplicated by repo name.
         # For images whose tag isn't a version (e.g. redis:alpine), fall back to
         # a Docker Hub digest lookup to find the actual running version.
-        seen: dict[str, tuple[str, str, str]] = {}  # repo -> (owner, repo, version)
+        seen: dict[str, tuple[str, str, str]] = {}  # owner/repo -> (owner, repo, version)
         for image in images:
             repo_str = resolve_image(image, overrides, docker_client=docker_client)
             if not repo_str:
@@ -84,16 +84,16 @@ async def fetch(
             if repo_str in ignored:
                 logger.debug("Skipping ignored repo %s", repo_str)
                 continue
-            owner, repo = repo_str.split("/", 1)
-            if repo in seen:
+            if repo_str in seen:
                 continue
+            owner, repo = repo_str.split("/", 1)
             version = (
                 await resolve_version_from_registry(image, client, docker_client=docker_client)
                 or get_current_version(image, docker_client=docker_client)
             )
             if not version:
                 continue
-            seen[repo] = (owner, repo, version)
+            seen[repo_str] = (owner, repo, version)
 
         items = list(seen.values())
         releases_list = await asyncio.gather(*[
