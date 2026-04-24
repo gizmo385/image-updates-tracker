@@ -1,9 +1,12 @@
+import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import discord
 import httpx
+from croniter import croniter
 from discord import app_commands
 from discord.ext import tasks
 
@@ -13,6 +16,10 @@ from digest import OverallDigest, ServiceDigest, summarize_all, summarize_servic
 logger = logging.getLogger(__name__)
 
 OVERRIDES_PATH = Path(os.environ.get("OVERRIDES_PATH", "/config/overrides.yaml"))
+
+_raw_channel = os.environ.get("DIGEST_CHANNEL_ID")
+DIGEST_CHANNEL_ID: int | None = int(_raw_channel) if _raw_channel else None
+DIGEST_CRON: str = os.environ.get("DIGEST_CRON", "0 9 * * *")
 
 
 class DigestBot(discord.Client):
@@ -24,6 +31,9 @@ class DigestBot(discord.Client):
     async def setup_hook(self):
         await self.tree.sync()
         _refresh_cache.start()
+        if DIGEST_CHANNEL_ID:
+            self.loop.create_task(_scheduled_digest_loop())
+            logger.info("Scheduled digest enabled: channel=%s cron=%r", DIGEST_CHANNEL_ID, DIGEST_CRON)
         logger.info("Slash commands synced")
 
 
@@ -38,6 +48,73 @@ async def _refresh_cache():
 @_refresh_cache.before_loop
 async def _before_refresh():
     await bot.wait_until_ready()
+
+
+async def _build_digest_embed(
+    cached: dict[str, update_cache.ServiceStatus],
+) -> discord.Embed | None:
+    """Build an overall digest embed, or return None if no services have updates."""
+    services_with_updates = {
+        name: (status.current_version, status.releases)
+        for name, status in cached.items()
+        if status.has_updates
+    }
+    if not services_with_updates:
+        return None
+
+    async with httpx.AsyncClient() as client:
+        result = await summarize_all(client, services_with_updates)
+
+    embed = discord.Embed(
+        title="Docker Services — Update Digest",
+        color=discord.Color.gold(),
+    )
+    if result.alerts and result.alerts != "None":
+        embed.add_field(
+            name="Alerts",
+            value=result.alerts[:1024],
+            inline=False,
+        )
+    for name, summary in result.services.items():
+        if summary:
+            embed.add_field(name=name, value=summary[:1024], inline=False)
+    embed.set_footer(
+        text=f"{len(services_with_updates)} of {len(cached)} services have pending updates"
+    )
+    return embed
+
+
+async def _scheduled_digest_loop() -> None:
+    """Post digests to the configured channel on a cron schedule."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = datetime.now(timezone.utc)
+        next_time = croniter(DIGEST_CRON, now).get_next(datetime)
+        delay = (next_time - now).total_seconds()
+        logger.info("Next scheduled digest at %s (in %.0fs)", next_time, delay)
+        await asyncio.sleep(delay)
+
+        try:
+            await update_cache.refresh_async(OVERRIDES_PATH)
+            cached, _ = update_cache.get()
+            if not cached:
+                continue
+
+            embed = await _build_digest_embed(cached)
+            if embed is None:
+                logger.info("Scheduled digest: all services up to date, skipping")
+                continue
+
+            try:
+                channel = bot.get_channel(DIGEST_CHANNEL_ID) or await bot.fetch_channel(DIGEST_CHANNEL_ID)
+            except discord.NotFound:
+                logger.error("Digest channel %s not found", DIGEST_CHANNEL_ID)
+                continue
+
+            await channel.send(embed=embed)
+            logger.info("Scheduled digest posted to #%s", channel.name)
+        except Exception:
+            logger.exception("Error posting scheduled digest")
 
 
 @bot.tree.command(name="digest", description="Get a digest of pending Docker service updates")
@@ -57,11 +134,11 @@ async def digest_command(interaction: discord.Interaction, service: str | None =
             )
             return
 
-        async with httpx.AsyncClient() as client:
-            if service:
+        if service:
+            async with httpx.AsyncClient() as client:
                 await _handle_single_service(interaction, client, service, cached)
-            else:
-                await _handle_overall_digest(interaction, client, cached)
+        else:
+            await _handle_overall_digest(interaction, cached)
 
     except Exception:
         logger.exception("Error generating digest")
@@ -120,37 +197,12 @@ async def _handle_single_service(
 
 async def _handle_overall_digest(
     interaction: discord.Interaction,
-    client: httpx.AsyncClient,
     cached: dict[str, update_cache.ServiceStatus],
 ):
-    services_with_updates = {
-        name: (status.current_version, status.releases)
-        for name, status in cached.items()
-        if status.has_updates
-    }
-
-    if not services_with_updates:
+    embed = await _build_digest_embed(cached)
+    if embed is None:
         await interaction.followup.send("All services are up to date!")
         return
-
-    result = await summarize_all(client, services_with_updates)
-
-    embed = discord.Embed(
-        title="Docker Services — Update Digest",
-        color=discord.Color.gold(),
-    )
-    if result.alerts and result.alerts != "None":
-        embed.add_field(
-            name="Alerts",
-            value=result.alerts[:1024],
-            inline=False,
-        )
-    for name, summary in result.services.items():
-        if summary:
-            embed.add_field(name=name, value=summary[:1024], inline=False)
-    embed.set_footer(
-        text=f"{len(services_with_updates)} of {len(cached)} services have pending updates"
-    )
     await interaction.followup.send(embed=embed)
 
 
