@@ -148,12 +148,20 @@ The service names MUST be exactly: {json.dumps(service_names)}
 Every service has changes — always summarize what actually changed based on the release notes. Never say "no changes" unless the release notes are truly empty.
 Do NOT use markdown headers. Use plain text with **bold** for emphasis if needed."""
 
-    raw = await _chat(client, prompt)
-    data = _extract_json(raw)
-    if data and "services" in data:
-        return OverallDigest(
-            alerts=data.get("alerts", "None"),
-            services=data.get("services", {}),
-        )
-    # Fallback: put the whole response in alerts with empty services
-    return OverallDigest(alerts=raw, services={name: "" for name in service_names})
+    # Try up to 2 times — small models sometimes produce broken JSON on
+    # the first attempt but succeed on a retry.
+    for attempt in range(2):
+        raw = await _chat(client, prompt)
+        data = _extract_json(raw)
+        if data and "services" in data:
+            return OverallDigest(
+                alerts=data.get("alerts", "None"),
+                services=data.get("services", {}),
+            )
+        if attempt == 0:
+            logger.warning("Failed to parse digest JSON, retrying")
+
+    # Fallback: put the raw response into each service summary so the user
+    # sees something rather than a blank page or a raw JSON blob in alerts.
+    logger.warning("Failed to parse digest JSON after retries")
+    return OverallDigest(alerts="None", services={name: raw for name in service_names})
