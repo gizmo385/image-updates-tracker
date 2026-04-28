@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import os
 import time
 from pathlib import Path
 
-from flask import Flask, Response, render_template
+import httpx
+from flask import Flask, Response, jsonify, render_template
 
 import update_cache
+from digest import summarize_all
 from docker_release_feeds import ServiceFeed, generate_opml
 
 app = Flask(__name__)
@@ -38,6 +41,33 @@ def feeds_opml():
         key=lambda f: f.name.lower(),
     )
     return Response(generate_opml(feeds), content_type="text/x-opml; charset=utf-8")
+
+
+@app.route("/digest")
+def digest():
+    cached, _ = update_cache.get()
+    if not cached:
+        return jsonify({"error": "No services loaded yet"}), 503
+
+    services_with_updates = {
+        name: (status.current_version, status.releases)
+        for name, status in cached.items()
+        if status.has_updates
+    }
+    if not services_with_updates:
+        return jsonify({"error": "All services are up to date"}), 200
+
+    async def _run():
+        async with httpx.AsyncClient() as client:
+            return await summarize_all(client, services_with_updates)
+
+    try:
+        result = asyncio.run(_run())
+    except Exception:
+        logger.exception("Failed to generate digest")
+        return jsonify({"error": "Failed to reach Ollama — is it running and reachable?"}), 502
+
+    return jsonify({"alerts": result.alerts, "services": result.services})
 
 
 @app.route("/health")

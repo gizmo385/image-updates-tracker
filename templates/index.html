@@ -15,6 +15,12 @@
     .badge { background: #cf222e; color: #fff; padding: .15rem .5rem; border-radius: 4px; font-size: .85rem; margin-left: .4rem; }
     .meta { color: var(--meta); font-size: .9rem; }
     .theme-toggle { background: none; border: 1px solid var(--border); color: var(--fg); padding: .3rem .6rem; border-radius: 4px; cursor: pointer; font-size: .9rem; }
+    .digest-btn { background: none; border: 1px solid var(--border); color: var(--fg); padding: .3rem .8rem; border-radius: 4px; cursor: pointer; font-size: .85rem; margin-left: .8rem; vertical-align: middle; }
+    .digest-btn:disabled { opacity: .5; cursor: wait; }
+    .digest-box { border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.2rem; margin-bottom: 1rem; background: var(--th-bg); }
+    .digest-box h3 { margin: 0 0 .5rem; font-size: 1rem; }
+    .digest-box p { margin: .3rem 0; }
+    .digest-alert { border-left: 3px solid #cf222e; padding-left: .8rem; margin-bottom: 1rem; }
   </style>
   <script>
     if (localStorage.getItem('theme') === 'light') document.documentElement.classList.add('light');
@@ -39,7 +45,13 @@
   </script>
   <p class="meta">Last checked: {{ updated_str }} &mdash; <a href="/feeds.opml">OPML feed</a></p>
 
-  <h2>Updates Available <span class="badge">{{ with_updates | length }}</span></h2>
+  <h2>
+    Updates Available <span class="badge">{{ with_updates | length }}</span>
+    {% if with_updates %}
+    <button class="digest-btn" onclick="generateDigest()" id="digestBtn">Generate Patch Notes</button>
+    {% endif %}
+  </h2>
+  <div id="digestResults" style="display:none;"></div>
   <table>
     <thead><tr><th>Service</th><th>Version</th><th>Releases behind</th></tr></thead>
     <tbody>
@@ -73,5 +85,48 @@
       {% endif %}
     </tbody>
   </table>
+  <script>
+    function generateDigest() {
+      var btn = document.getElementById('digestBtn');
+      var box = document.getElementById('digestResults');
+      btn.disabled = true;
+      btn.textContent = 'Generating\u2026';
+      box.style.display = 'block';
+      box.innerHTML = '<p class="meta">Querying Ollama for patch notes\u2026</p>';
+
+      fetch('/digest')
+        .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+        .then(function(res) {
+          if (res.data.error) {
+            box.innerHTML = '<p>' + res.data.error + '</p>';
+            return;
+          }
+          var html = '';
+          if (res.data.alerts && res.data.alerts !== 'None') {
+            html += '<div class="digest-alert"><strong>Alerts:</strong> ' + escapeHtml(res.data.alerts) + '</div>';
+          }
+          var services = res.data.services || {};
+          for (var name in services) {
+            if (services[name]) {
+              html += '<div class="digest-box"><h3>' + escapeHtml(name) + '</h3><p>' + escapeHtml(services[name]) + '</p></div>';
+            }
+          }
+          box.innerHTML = html || '<p>No patch notes generated.</p>';
+        })
+        .catch(function(err) {
+          box.innerHTML = '<p>Error: ' + escapeHtml(err.message) + '</p>';
+        })
+        .finally(function() {
+          btn.disabled = false;
+          btn.textContent = 'Generate Patch Notes';
+        });
+    }
+
+    function escapeHtml(s) {
+      var d = document.createElement('div');
+      d.appendChild(document.createTextNode(s));
+      return d.innerHTML;
+    }
+  </script>
 </body>
 </html>
