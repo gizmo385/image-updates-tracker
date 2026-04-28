@@ -150,13 +150,20 @@ async def resolve_version_from_registry(
         image, namespace, repo, target_digest, tag_filter,
     )
 
-    # 3. Paginate tags, collecting those whose manifest digest matches
+    # 3. Paginate tags, collecting those whose manifest digest matches.
+    #    Stop early once we find a usable version — no need to collect every
+    #    co-digest tag when images have hundreds or thousands of tags.
     matching_tags: list[str] = []
     params: dict[str, str | int] = {"page_size": 100}
     if tag_filter:
         params["name"] = tag_filter
 
-    for page in range(1, 11):
+    # Without a tag filter, results are newest-first. If the digest hasn't
+    # matched in the first few pages the image is likely stale — don't waste
+    # API calls paging through thousands of tags.
+    max_pages = 10 if tag_filter else 3
+
+    for page in range(1, max_pages + 1):
         params["page"] = page
         resp = await client.get(
             f"{DOCKERHUB_API}/v2/repositories/{namespace}/{repo}/tags",
@@ -173,6 +180,10 @@ async def resolve_version_from_registry(
         for entry in data.get("results", []):
             if entry.get("digest") == target_digest:
                 matching_tags.append(entry["name"])
+
+        # If we already have a usable version, no need to keep paging
+        if matching_tags and _best_version_from_tags(matching_tags) is not None:
+            break
 
         if not data.get("next"):
             break
