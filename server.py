@@ -27,8 +27,8 @@ def index():
         return "<p>Loading — check back in a moment.</p>", 503
 
     updated_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_updated))
-    with_updates = sorted((s for s in cached.values() if s.has_updates), key=lambda s: s.name)
-    up_to_date = sorted((s for s in cached.values() if not s.has_updates), key=lambda s: s.name)
+    with_updates = sorted((s for s in cached.values() if s.has_updates), key=lambda s: s.name.lower())
+    up_to_date = sorted((s for s in cached.values() if not s.has_updates), key=lambda s: s.name.lower())
 
     return render_template("index.html", updated_str=updated_str, with_updates=with_updates, up_to_date=up_to_date)
 

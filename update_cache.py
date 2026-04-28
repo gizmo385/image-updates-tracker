@@ -101,9 +101,15 @@ async def fetch(
             for owner, repo, version in items
         ])
 
+    def _display_name(owner: str, repo: str) -> str:
+        key = f"{owner}/{repo}"
+        if key in names:
+            return names[key]
+        return repo.replace("-", " ").replace("_", " ").title()
+
     return {
-        names.get(f"{owner}/{repo}", repo): ServiceStatus(
-            name=names.get(f"{owner}/{repo}", repo), owner=owner, repo=repo,
+        _display_name(owner, repo): ServiceStatus(
+            name=_display_name(owner, repo), owner=owner, repo=repo,
             current_version=version, releases=releases,
         )
         for (owner, repo, version), releases in zip(items, releases_list)
