@@ -4,18 +4,39 @@
   <meta charset="utf-8">
   <title>Service Updates</title>
   <style>
-    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #e0e0e0; background: #121212; }
+    :root { --bg: #121212; --fg: #e0e0e0; --border: #2e2e2e; --th-bg: #1e1e1e; --link: #58a6ff; --meta: #888; }
+    :root.light { --bg: #fff; --fg: #1a1a1a; --border: #ddd; --th-bg: #f5f5f5; --link: #0969da; --meta: #666; }
+    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: var(--fg); background: var(--bg); }
     h2 { margin-top: 2rem; }
     table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
-    th, td { text-align: left; padding: .4rem .8rem; border-bottom: 1px solid #2e2e2e; }
-    th { background: #1e1e1e; }
-    a { color: #58a6ff; }
+    th, td { text-align: left; padding: .4rem .8rem; border-bottom: 1px solid var(--border); }
+    th { background: var(--th-bg); }
+    a { color: var(--link); }
     .badge { background: #cf222e; color: #fff; padding: .15rem .5rem; border-radius: 4px; font-size: .85rem; margin-left: .4rem; }
-    .meta { color: #888; font-size: .9rem; }
+    .meta { color: var(--meta); font-size: .9rem; }
+    .theme-toggle { background: none; border: 1px solid var(--border); color: var(--fg); padding: .3rem .6rem; border-radius: 4px; cursor: pointer; font-size: .9rem; }
   </style>
+  <script>
+    if (localStorage.getItem('theme') === 'light') document.documentElement.classList.add('light');
+  </script>
 </head>
 <body>
-  <h1>Docker Service Updates</h1>
+  <div style="display:flex; align-items:center; justify-content:space-between;">
+    <h1 style="margin:0;">Docker Service Updates</h1>
+    <button class="theme-toggle" onclick="toggleTheme()"></button>
+  </div>
+  <script>
+    function toggleTheme() {
+      var isLight = document.documentElement.classList.toggle('light');
+      localStorage.setItem('theme', isLight ? 'light' : 'dark');
+      updateToggleLabel();
+    }
+    function updateToggleLabel() {
+      var btn = document.querySelector('.theme-toggle');
+      btn.textContent = document.documentElement.classList.contains('light') ? 'Dark mode' : 'Light mode';
+    }
+    updateToggleLabel();
+  </script>
   <p class="meta">Last checked: {{ updated_str }} &mdash; <a href="/feeds.opml">OPML feed</a></p>
 
   <h2>Updates Available <span class="badge">{{ with_updates | length }}</span></h2>
