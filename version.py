@@ -31,11 +31,43 @@ def _tag_from_image(image: str) -> str | None:
     return None if tag in _NON_VERSION_TAGS else tag
 
 
+def _image_short_name(image: str) -> str:
+    """Extract the short project name from an image reference.
+
+    "nextcloud"                  → "nextcloud"
+    "nginx:alpine"               → "nginx"
+    "ghcr.io/org/myapp:latest"   → "myapp"
+    "ollama/ollama"              → "ollama"
+    """
+    name = image.split("@")[0]    # strip digest
+    name = name.rsplit(":", 1)[0]  # strip tag
+    name = name.rsplit("/", 1)[-1]  # last path segment
+    return name
+
+
+def _version_from_env(image: str, docker_client: docker.DockerClient | None = None) -> str | None:
+    """Look for a {NAME}_VERSION environment variable in the image config."""
+    try:
+        client = docker_client or docker.from_env()
+        img = client.images.get(image)
+        env_list = img.attrs.get("Config", {}).get("Env") or []
+    except (docker.errors.ImageNotFound, docker.errors.APIError):
+        return None
+
+    short = _image_short_name(image).upper().replace("-", "_")
+    target_key = f"{short}_VERSION"
+    for entry in env_list:
+        key, _, value = entry.partition("=")
+        if key == target_key and value:
+            return value
+    return None
+
+
 def get_current_version(image: str, docker_client: docker.DockerClient | None = None) -> str | None:
     """Get the running version of a Docker image.
 
     Tries the org.opencontainers.image.version OCI label first,
-    then falls back to the image tag if it looks like a version.
+    then the image tag, then a {NAME}_VERSION environment variable.
     """
     try:
         client = docker_client or docker.from_env()
@@ -54,6 +86,11 @@ def get_current_version(image: str, docker_client: docker.DockerClient | None = 
     if tag:
         logger.debug("Image %s: version %s (tag fallback)", image, tag)
         return tag
+
+    env_version = _version_from_env(image, docker_client=client)
+    if env_version:
+        logger.debug("Image %s: version %s (env var)", image, env_version)
+        return env_version
 
     logger.debug("Image %s: no version found", image)
     return None

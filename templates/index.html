@@ -6,7 +6,7 @@
   <style>
     :root { --bg: #121212; --fg: #e0e0e0; --border: #2e2e2e; --th-bg: #1e1e1e; --link: #58a6ff; --meta: #888; }
     :root.light { --bg: #fff; --fg: #1a1a1a; --border: #ddd; --th-bg: #f5f5f5; --link: #0969da; --meta: #666; }
-    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: var(--fg); background: var(--bg); }
+    body { font-family: sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: var(--fg); background: var(--bg); }
     h2 { margin-top: 2rem; }
     table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
     th, td { text-align: left; padding: .4rem .8rem; border-bottom: 1px solid var(--border); }
@@ -53,35 +53,39 @@
   </h2>
   <div id="digestResults" style="display:none;"></div>
   <table>
-    <thead><tr><th>Service</th><th>Version</th><th>Releases behind</th></tr></thead>
+    <thead><tr><th>Service</th><th>Image</th><th>Version</th><th>Version source</th><th>Releases behind</th></tr></thead>
     <tbody>
       {% if with_updates %}
         {% for s in with_updates %}
         <tr>
           <td><a href="{{ s.html_url }}">{{ s.name }}</a></td>
+          <td>{% if s.image_url %}<a href="{{ s.image_url }}">{{ s.image }}</a>{% else %}{{ s.image }}{% endif %}</td>
           <td>{{ s.current_version }} &rarr; {{ s.latest_version }}</td>
+          <td>{{ s.version_source }}</td>
           <td>{{ s.releases | length }} release{{ 's' if s.releases | length != 1 else '' }}</td>
         </tr>
         {% endfor %}
       {% else %}
-        <tr><td colspan="3">All services are up to date.</td></tr>
+        <tr><td colspan="5">All services are up to date.</td></tr>
       {% endif %}
     </tbody>
   </table>
 
   <h2>Up to Date</h2>
   <table>
-    <thead><tr><th>Service</th><th>Version</th></tr></thead>
+    <thead><tr><th>Service</th><th>Image</th><th>Version</th><th>Version source</th></tr></thead>
     <tbody>
       {% if up_to_date %}
         {% for s in up_to_date %}
         <tr>
-          <td>{{ s.name }}</td>
+          <td><a href="{{ s.html_url }}">{{ s.name }}</a></td>
+          <td>{% if s.image_url %}<a href="{{ s.image_url }}">{{ s.image }}</a>{% else %}{{ s.image }}{% endif %}</td>
           <td>{{ s.current_version }}</td>
+          <td>{{ s.version_source }}</td>
         </tr>
         {% endfor %}
       {% else %}
-        <tr><td colspan="2">No services tracked.</td></tr>
+        <tr><td colspan="4">No services tracked.</td></tr>
       {% endif %}
     </tbody>
   </table>
