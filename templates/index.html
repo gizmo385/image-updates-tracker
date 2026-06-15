@@ -44,7 +44,11 @@
     }
     updateToggleLabel();
   </script>
-  <p class="meta">Last checked: {{ updated_str }} &mdash; <a href="/feeds.opml">OPML feed</a></p>
+  <p class="meta">
+    Last checked: <span id="lastChecked" data-ts="{{ last_updated }}"></span>
+    <button class="digest-btn" onclick="refreshNow()" id="refreshBtn">Refresh now</button>
+    &mdash; <a href="/feeds.opml">OPML feed</a>
+  </p>
 
   <h2>
     Updates Available <span class="badge">{{ with_updates | length }}</span>
@@ -131,6 +135,43 @@
       var d = document.createElement('div');
       d.appendChild(document.createTextNode(s));
       return d.innerHTML;
+    }
+
+    (function renderLastChecked() {
+      var el = document.getElementById('lastChecked');
+      var ts = parseFloat(el.getAttribute('data-ts'));
+      if (!ts) { el.textContent = 'unknown'; return; }
+      el.textContent = new Date(ts * 1000).toLocaleString();
+    })();
+
+    function refreshNow() {
+      var btn = document.getElementById('refreshBtn');
+      var initialTs = parseFloat(document.getElementById('lastChecked').getAttribute('data-ts'));
+      btn.disabled = true;
+      btn.textContent = 'Refreshing…';
+      fetch('/refresh', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function() { pollStatus(initialTs); })
+        .catch(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Refresh now';
+          alert('Failed to start refresh: ' + err.message);
+        });
+    }
+
+    function pollStatus(initialTs) {
+      fetch('/status')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (!d.refreshing && d.last_updated > initialTs) {
+            window.location.reload();
+            return;
+          }
+          setTimeout(function() { pollStatus(initialTs); }, 2000);
+        })
+        .catch(function() {
+          setTimeout(function() { pollStatus(initialTs); }, 2000);
+        });
     }
   </script>
 </body>

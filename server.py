@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import time
 from pathlib import Path
 
 import httpx
@@ -27,11 +26,27 @@ def index():
     if not cached:
         return "<p>Loading — check back in a moment.</p>", 503
 
-    updated_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_updated))
     with_updates = sorted((s for s in cached.values() if s.has_updates), key=lambda s: s.name.lower())
     up_to_date = sorted((s for s in cached.values() if not s.has_updates), key=lambda s: s.name.lower())
 
-    return render_template("index.html", updated_str=updated_str, with_updates=with_updates, up_to_date=up_to_date)
+    return render_template(
+        "index.html",
+        last_updated=last_updated,
+        with_updates=with_updates,
+        up_to_date=up_to_date,
+    )
+
+
+@app.route("/refresh", methods=["POST"])
+def refresh():
+    started = update_cache.trigger_refresh(OVERRIDES_PATH)
+    return jsonify({"started": started, "refreshing": update_cache.is_refreshing()})
+
+
+@app.route("/status")
+def status():
+    _, last_updated = update_cache.get()
+    return jsonify({"refreshing": update_cache.is_refreshing(), "last_updated": last_updated})
 
 
 @app.route("/feeds.opml")

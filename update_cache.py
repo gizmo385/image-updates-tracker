@@ -76,11 +76,17 @@ class ServiceStatus:
 _lock = threading.Lock()
 _services: dict[str, ServiceStatus] = {}
 _last_updated: float = 0.0
+_refresh_lock = threading.Lock()
+_refreshing = False
 
 
 def get() -> tuple[dict[str, ServiceStatus], float]:
     with _lock:
         return dict(_services), _last_updated
+
+
+def is_refreshing() -> bool:
+    return _refreshing
 
 
 def _set(services: dict[str, ServiceStatus]) -> None:
@@ -122,9 +128,13 @@ async def fetch(
             if repo_str in seen:
                 continue
             owner, repo = repo_str.split("/", 1)
-            version = await resolve_version_from_registry(
-                image, client, docker_client=docker_client
-            )
+            try:
+                version = await resolve_version_from_registry(
+                    image, client, docker_client=docker_client
+                )
+            except Exception:
+                logger.warning("Registry version lookup failed for %s; falling back", image, exc_info=True)
+                version = None
             if version:
                 version_source = "Docker Hub digest"
             else:
@@ -148,12 +158,20 @@ async def fetch(
             seen[repo_str] = (owner, repo, version, image, version_source)
 
         items = list(seen.values())
-        releases_list = await asyncio.gather(
+        releases_results = await asyncio.gather(
             *[
                 get_releases_since(client, owner, repo, version)
                 for owner, repo, version, _image, _vs in items
-            ]
+            ],
+            return_exceptions=True,
         )
+        releases_list: list[list[Release]] = []
+        for (owner, repo, _v, _i, _vs), result in zip(items, releases_results):
+            if isinstance(result, BaseException):
+                logger.warning("Releases lookup failed for %s/%s: %s", owner, repo, result)
+                releases_list.append([])
+            else:
+                releases_list.append(result)
 
     def _display_name(owner: str, repo: str) -> str:
         key = f"{owner}/{repo}"
@@ -188,8 +206,27 @@ async def refresh_async(overrides_path: Path) -> None:
 
 
 def refresh(overrides_path: Path) -> None:
-    """Refresh the cache (sync — for use in Flask background thread)."""
-    asyncio.run(refresh_async(overrides_path))
+    """Refresh the cache (sync — for use in Flask background thread).
+
+    Serialized via _refresh_lock so manual and periodic refreshes can't overlap.
+    """
+    global _refreshing
+    with _refresh_lock:
+        _refreshing = True
+        try:
+            asyncio.run(refresh_async(overrides_path))
+        finally:
+            _refreshing = False
+
+
+def trigger_refresh(overrides_path: Path) -> bool:
+    """Kick off a refresh in a background thread. Returns False if one is already running."""
+    if _refreshing:
+        return False
+    threading.Thread(
+        target=refresh, args=(overrides_path,), daemon=True, name="cache-refresh-manual"
+    ).start()
+    return True
 
 
 def start_background_refresh(
