@@ -1,8 +1,10 @@
-# image-updates-tracker
+# Images Updates Tracker
 
 Tracks running Docker containers and checks for newer releases on GitHub. Provides a web dashboard, an OPML feed of GitHub release feeds, and an optional Discord bot that generates summaries of pending updates.
 
 ![Home page](./images/home_page.png)
+
+The Discord bot update messages look like:
 
 ![Discord bot](./images/discord_bot.png)
 
@@ -39,6 +41,7 @@ cp .env.example .env
 | `DISCORD_TOKEN` | _(required for bot)_ | Discord bot token |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API base URL |
 | `OLLAMA_MODEL` | `qwen2.5:1.5b` | Ollama model to use for digest summaries |
+| `DIGEST_CRON` | `0 9 * * *` | When to send summaries via the Discord bot |
 
 
 ## Running with Docker Compose
