@@ -37,6 +37,41 @@ def index():
     )
 
 
+@app.route("/api/updates")
+def api_updates():
+    cached, last_updated = update_cache.get()
+
+    if not cached:
+        return jsonify({"error": "No services loaded yet"}), 503
+
+    services = [
+        {
+            "name": s.name,
+            "owner": s.owner,
+            "repo": s.repo,
+            "image": s.image,
+            "current_version": s.current_version,
+            "latest_version": s.latest_version,
+            "has_updates": s.has_updates,
+            "html_url": s.html_url,
+            "image_url": s.image_url,
+            "releases": [
+                {"tag": r.tag, "url": r.url, "published_at": r.published_at}
+                for r in s.releases
+            ],
+        }
+        for s in sorted(cached.values(), key=lambda s: s.name.lower())
+    ]
+
+    return jsonify(
+        {
+            "services": services,
+            "last_updated": last_updated,
+            "refreshing": update_cache.is_refreshing(),
+        }
+    )
+
+
 @app.route("/refresh", methods=["POST"])
 def refresh():
     started = update_cache.trigger_refresh(OVERRIDES_PATH)
