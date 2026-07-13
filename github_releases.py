@@ -35,8 +35,19 @@ def _is_newer(release_tag: str, current_version: str) -> bool | None:
 
 
 def _is_same(release_tag: str, current_version: str) -> bool:
-    """Check if a release tag matches the current version."""
-    return normalize_version(release_tag) == normalize_version(current_version)
+    """Check if a release tag matches the current version.
+
+    Compares normalized version strings, falling back to semver equality so
+    equivalent-but-differently-spelled versions (e.g. '2.20' and '2.20.0') match.
+    """
+    release_n = normalize_version(release_tag)
+    current_n = normalize_version(current_version)
+    if release_n == current_n:
+        return True
+    try:
+        return Version(release_n) == Version(current_n)
+    except InvalidVersion:
+        return False
 
 
 def _github_headers() -> dict[str, str]:

@@ -1,6 +1,7 @@
 import logging
 
 import docker
+from packaging.version import InvalidVersion, Version
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +15,31 @@ _NON_VERSION_TAGS = {
 }
 
 
+def _looks_like_version(tag: str) -> bool:
+    """True if *tag* parses as a version once an optional leading 'v' is removed."""
+    candidate = tag[1:] if tag[:1].lower() == "v" else tag
+    try:
+        Version(candidate)
+        return True
+    except InvalidVersion:
+        return False
+
+
 def normalize_version(tag: str) -> str:
-    """Strip common prefixes like 'v' or 'release-' from a version tag."""
+    """Strip common prefixes so a tag can be compared as a version.
+
+    Handles a leading 'v'/'release-'/'release/' prefix, plus monorepo-style
+    component prefixes like 'twenty/v2.20.0' or 'server/1.2.3' where the release
+    tag is namespaced by the package it belongs to. The component prefix is only
+    stripped when what remains actually looks like a version, so unusual tags
+    (e.g. 'nightly/build') are left untouched.
+    """
+    # Monorepo component prefix: "twenty/v2.20.0" -> "v2.20.0"
+    if "/" in tag:
+        candidate = tag.rsplit("/", 1)[1]
+        if _looks_like_version(candidate):
+            tag = candidate
+
     for prefix in ("v", "release-", "release/"):
         if tag.lower().startswith(prefix):
             tag = tag[len(prefix):]
