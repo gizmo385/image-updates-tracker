@@ -9,11 +9,17 @@ import httpx
 from croniter import croniter
 from discord import app_commands
 from discord.ext import tasks
+from opentelemetry import trace
 
 import update_cache
 from digest import OverallDigest, ServiceDigest, summarize_all, summarize_service
 
 logger = logging.getLogger(__name__)
+
+# Work here is driven by Discord's gateway and timers rather than incoming HTTP
+# requests, so each unit of it gets a root span for the auto-instrumented HTTP
+# calls to hang off. A no-op unless the OpenTelemetry SDK is configured.
+tracer = trace.get_tracer("image-updates-tracker")
 
 OVERRIDES_PATH = Path(os.environ.get("OVERRIDES_PATH", "/config/overrides.yaml"))
 
@@ -94,57 +100,60 @@ async def _scheduled_digest_loop() -> None:
         logger.info("Next scheduled digest at %s (in %.0fs)", next_time, delay)
         await asyncio.sleep(delay)
 
-        try:
-            await update_cache.refresh_async(OVERRIDES_PATH)
-            cached, _ = update_cache.get()
-            if not cached:
-                continue
-
-            embed = await _build_digest_embed(cached)
-            if embed is None:
-                logger.info("Scheduled digest: all services up to date, skipping")
-                continue
-
+        with tracer.start_as_current_span("job scheduled_digest"):
             try:
-                channel = bot.get_channel(DIGEST_CHANNEL_ID) or await bot.fetch_channel(DIGEST_CHANNEL_ID)
-            except discord.NotFound:
-                logger.error("Digest channel %s not found", DIGEST_CHANNEL_ID)
-                continue
+                await update_cache.refresh_async(OVERRIDES_PATH)
+                cached, _ = update_cache.get()
+                if not cached:
+                    continue
 
-            await channel.send(embed=embed)
-            logger.info("Scheduled digest posted to #%s", channel.name)
-        except Exception:
-            logger.exception("Error posting scheduled digest")
+                embed = await _build_digest_embed(cached)
+                if embed is None:
+                    logger.info("Scheduled digest: all services up to date, skipping")
+                    continue
+
+                try:
+                    channel = bot.get_channel(DIGEST_CHANNEL_ID) or await bot.fetch_channel(DIGEST_CHANNEL_ID)
+                except discord.NotFound:
+                    logger.error("Digest channel %s not found", DIGEST_CHANNEL_ID)
+                    continue
+
+                await channel.send(embed=embed)
+                logger.info("Scheduled digest posted to #%s", channel.name)
+            except Exception:
+                logger.exception("Error posting scheduled digest")
 
 
 @bot.tree.command(name="digest", description="Get a digest of pending Docker service updates")
 @app_commands.describe(service="Specific service to check (omit for overall digest)")
 async def digest_command(interaction: discord.Interaction, service: str | None = None):
-    await interaction.response.defer(thinking=True)
+    with tracer.start_as_current_span("command digest") as span:
+        span.set_attribute("digest.service", service or "")
+        await interaction.response.defer(thinking=True)
 
-    try:
-        cached, _ = update_cache.get()
-        if not cached:
-            await update_cache.refresh_async(OVERRIDES_PATH)
+        try:
             cached, _ = update_cache.get()
+            if not cached:
+                await update_cache.refresh_async(OVERRIDES_PATH)
+                cached, _ = update_cache.get()
 
-        if not cached:
+            if not cached:
+                await interaction.followup.send(
+                    "No running services with detectable versions found."
+                )
+                return
+
+            if service:
+                async with httpx.AsyncClient() as client:
+                    await _handle_single_service(interaction, client, service, cached)
+            else:
+                await _handle_overall_digest(interaction, cached)
+
+        except Exception:
+            logger.exception("Error generating digest")
             await interaction.followup.send(
-                "No running services with detectable versions found."
+                "An error occurred while generating the digest. Check the bot logs."
             )
-            return
-
-        if service:
-            async with httpx.AsyncClient() as client:
-                await _handle_single_service(interaction, client, service, cached)
-        else:
-            await _handle_overall_digest(interaction, cached)
-
-    except Exception:
-        logger.exception("Error generating digest")
-        await interaction.followup.send(
-            "An error occurred while generating the digest. Check the bot logs."
-        )
 
 
 async def _handle_single_service(

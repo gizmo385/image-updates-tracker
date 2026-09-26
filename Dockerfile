@@ -2,6 +2,14 @@ FROM python:3.12-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# OpenTelemetry auto-instrumentation is wired in but exports nothing unless the
+# deployment points it at a collector (OTEL_TRACES_EXPORTER=otlp plus
+# OTEL_EXPORTER_OTLP_ENDPOINT).
+ENV OTEL_TRACES_EXPORTER=none \
+    OTEL_METRICS_EXPORTER=none \
+    OTEL_LOGS_EXPORTER=none \
+    OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
@@ -12,4 +20,4 @@ COPY templates/ templates/
 
 EXPOSE 8585
 
-CMD ["uv", "run", "gunicorn", "--bind", "0.0.0.0:8585", "server:app"]
+CMD ["uv", "run", "opentelemetry-instrument", "gunicorn", "--bind", "0.0.0.0:8585", "server:app"]

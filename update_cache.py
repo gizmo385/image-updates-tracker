@@ -7,6 +7,7 @@ from pathlib import Path
 
 import docker
 import httpx
+from opentelemetry import trace
 
 from docker_release_feeds import (
     get_running_images,
@@ -18,6 +19,10 @@ from docker_release_feeds import (
 )
 from github_releases import Release, get_releases_since
 from registry import resolve_version_from_registry
+
+# Refreshes run from timers and background threads, so they get their own root
+# span for the Docker/GitHub/registry calls to hang off.
+tracer = trace.get_tracer("image-updates-tracker")
 from version import _version_from_env, get_current_version
 
 logger = logging.getLogger(__name__)
@@ -197,12 +202,16 @@ async def fetch(
 
 async def refresh_async(overrides_path: Path) -> None:
     """Refresh the cache (async — for use in the discord bot)."""
-    try:
-        services = await fetch(overrides_path)
-        _set(services)
-        logger.info("Cache refreshed: %d services checked", len(services))
-    except Exception:
-        logger.exception("Failed to refresh update cache")
+    with tracer.start_as_current_span("refresh update cache") as span:
+        try:
+            services = await fetch(overrides_path)
+            _set(services)
+            span.set_attribute("services.checked", len(services))
+            logger.info("Cache refreshed: %d services checked", len(services))
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(trace.StatusCode.ERROR)
+            logger.exception("Failed to refresh update cache")
 
 
 def refresh(overrides_path: Path) -> None:
