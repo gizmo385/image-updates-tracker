@@ -14,6 +14,7 @@ from docker_release_feeds import (
     load_ignored,
     load_names,
     load_overrides,
+    load_release_exclusions,
     resolve_image,
     strip_tag,
 )
@@ -113,6 +114,7 @@ async def fetch(
     overrides = load_overrides(overrides_path)
     names = load_names(overrides_path)
     ignored = load_ignored(overrides_path)
+    exclusions = load_release_exclusions(overrides_path)
     docker_client = docker.from_env()
     if images is None:
         images = get_running_images(docker_client=docker_client)
@@ -165,7 +167,10 @@ async def fetch(
         items = list(seen.values())
         releases_results = await asyncio.gather(
             *[
-                get_releases_since(client, owner, repo, version)
+                get_releases_since(
+                    client, owner, repo, version,
+                    excluded_words=exclusions.for_repo(owner, repo),
+                )
                 for owner, repo, version, _image, _vs in items
             ],
             return_exceptions=True,

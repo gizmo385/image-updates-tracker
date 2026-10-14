@@ -1,16 +1,22 @@
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 
 import httpx
-from flask import Flask, Response, jsonify, render_template
+from flask import Flask, Response, abort, jsonify, render_template, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import update_cache
 from digest import summarize_all
-from docker_release_feeds import ServiceFeed, generate_opml
+from docker_release_feeds import ServiceFeed, generate_atom, generate_opml, load_release_exclusions
+from github_releases import get_recent_releases
 
 app = Flask(__name__)
+# Trust the reverse proxy's X-Forwarded-* headers so external URLs (e.g. the
+# feed links in the OPML) use the public scheme and host.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -88,10 +94,60 @@ def status():
 def feeds_opml():
     cached, _ = update_cache.get()
     feeds = sorted(
-        [ServiceFeed(name=s.name, owner=s.owner, repo=s.repo) for s in cached.values()],
+        [
+            ServiceFeed(
+                name=s.name,
+                owner=s.owner,
+                repo=s.repo,
+                feed_url=url_for("release_feed", owner=s.owner, repo=s.repo, _external=True),
+            )
+            for s in cached.values()
+        ],
         key=lambda f: f.name.lower(),
     )
     return Response(generate_opml(feeds), content_type="text/x-opml; charset=utf-8")
+
+
+FEED_CACHE_TTL = 15 * 60
+# (owner, repo) -> (fetched_at, atom xml)
+_feed_cache: dict[tuple[str, str], tuple[float, str]] = {}
+
+
+@app.route("/feeds/<owner>/<repo>.atom")
+def release_feed(owner: str, repo: str):
+    """Atom feed of a tracked repo's releases, minus excluded (nightly/beta/RC) builds."""
+    cached, _ = update_cache.get()
+    service = next(
+        (s for s in cached.values() if s.owner.lower() == owner.lower() and s.repo.lower() == repo.lower()),
+        None,
+    )
+    if service is None:
+        abort(404)
+
+    key = (service.owner, service.repo)
+    hit = _feed_cache.get(key)
+    if hit and time.time() - hit[0] < FEED_CACHE_TTL:
+        return Response(hit[1], content_type="application/atom+xml; charset=utf-8")
+
+    excluded_words = load_release_exclusions(OVERRIDES_PATH).for_repo(service.owner, service.repo)
+
+    async def _run():
+        async with httpx.AsyncClient() as client:
+            return await get_recent_releases(
+                client, service.owner, service.repo, excluded_words=excluded_words
+            )
+
+    releases = asyncio.run(_run())
+    if releases is None:
+        # Serve stale content rather than an error if we have it
+        if hit:
+            return Response(hit[1], content_type="application/atom+xml; charset=utf-8")
+        return jsonify({"error": "Failed to fetch releases from GitHub"}), 502
+
+    feed = ServiceFeed(name=service.name, owner=service.owner, repo=service.repo)
+    xml = generate_atom(feed, url_for("release_feed", owner=service.owner, repo=service.repo, _external=True), releases)
+    _feed_cache[key] = (time.time(), xml)
+    return Response(xml, content_type="application/atom+xml; charset=utf-8")
 
 
 @app.route("/digest")

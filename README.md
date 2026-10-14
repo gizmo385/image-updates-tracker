@@ -1,6 +1,6 @@
 # Images Updates Tracker
 
-Tracks running Docker containers and checks for newer releases on GitHub. Provides a web dashboard, an OPML feed of GitHub release feeds, and an optional Discord bot that generates summaries of pending updates.
+Tracks running Docker containers and checks for newer releases on GitHub. Provides a web dashboard, an OPML list of per-service release feeds (with nightly/beta/RC builds filtered out), and an optional Discord bot that generates summaries of pending updates.
 
 ![Home page](./images/home_page.png)
 
@@ -25,6 +25,23 @@ names:
   postgres/postgres: PostgreSQL
   redis/redis: Redis
 ```
+
+#### Excluding pre-releases
+
+Releases GitHub flags as pre-releases are always hidden from the dashboard and feeds. Releases are also hidden when their tag contains an excluded word, matched against each part of the tag split on punctuation (so `rc` matches `v1.2.0-rc2` and `v1.2.0rc1`, but not `v1.0-arch`).
+
+```yaml
+exclude_releases:
+  # Words excluded for every service. Omit to use the built-in list
+  # (alpha, beta, rc, pre, preview, nightly, canary, dev, snapshot, edge, unstable),
+  # or set to [] to rely only on GitHub's pre-release flag.
+  global: [alpha, beta, rc, nightly]
+  # Extra words excluded for specific repos only
+  repos:
+    kopia/kopia: [test]
+```
+
+The feeds in `/feeds.opml` are served from `/feeds/<owner>/<repo>.atom` and cached for 15 minutes.
 
 ### Environment variables
 

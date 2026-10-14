@@ -23,3 +23,10 @@ names:
   immich-app/immich: Immich
   nextcloud/server: Nextcloud
   redis/redis: Redis
+
+# Hide releases whose tags contain these words (in addition to releases GitHub
+# flags as pre-releases). Omit 'global' to use the built-in list.
+exclude_releases:
+  global: [alpha, beta, rc, pre, preview, nightly, canary, dev, snapshot, edge, unstable]
+  repos:
+    kopia/kopia: [test]

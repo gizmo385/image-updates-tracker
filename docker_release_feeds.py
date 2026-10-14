@@ -1,13 +1,15 @@
 import logging
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
 import click
 import docker
 import yaml
+
+from github_releases import DEFAULT_EXCLUDED_WORDS, Release
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,8 @@ class ServiceFeed:
     name: str
     owner: str
     repo: str
+    # Where readers should subscribe; defaults to GitHub's unfiltered feed.
+    feed_url: str | None = None
 
     @property
     def atom_url(self) -> str:
@@ -62,6 +66,40 @@ def load_ignored(path: Path) -> set[str]:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     return set(data.get("ignore", []))
+
+
+@dataclass
+class ReleaseExclusions:
+    """Tag words whose releases are hidden from the dashboard and feeds."""
+
+    global_words: frozenset[str] = DEFAULT_EXCLUDED_WORDS
+    # lowercased 'owner/repo' -> extra words for that repo only
+    repo_words: dict[str, frozenset[str]] = field(default_factory=dict)
+
+    def for_repo(self, owner: str, repo: str) -> frozenset[str]:
+        return self.global_words | self.repo_words.get(f"{owner}/{repo}".lower(), frozenset())
+
+
+def load_release_exclusions(path: Path) -> ReleaseExclusions:
+    """Load the exclude_releases section of the overrides YAML file.
+
+    'global' replaces the built-in word list for every repo (an empty list
+    leaves only GitHub's prerelease flag); 'repos' adds words for specific
+    'owner/repo's on top of it.
+    """
+    if not path.exists():
+        return ReleaseExclusions()
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    section = data.get("exclude_releases") or {}
+    global_words = section.get("global")
+    return ReleaseExclusions(
+        global_words=DEFAULT_EXCLUDED_WORDS if global_words is None else frozenset(global_words),
+        repo_words={
+            repo.lower(): frozenset(words or [])
+            for repo, words in (section.get("repos") or {}).items()
+        },
+    )
 
 
 def get_running_images(docker_client: docker.DockerClient | None = None) -> list[str]:
@@ -206,7 +244,7 @@ def generate_opml(feeds: list[ServiceFeed]) -> str:
             type="rss",
             text=feed.name,
             title=feed.name,
-            xmlUrl=feed.atom_url,
+            xmlUrl=feed.feed_url or feed.atom_url,
             htmlUrl=feed.html_url,
         )
 
@@ -214,6 +252,44 @@ def generate_opml(feeds: list[ServiceFeed]) -> str:
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(
         opml, encoding="unicode"
     )
+
+
+ATOM_NS = "http://www.w3.org/2005/Atom"
+
+
+def generate_atom(feed: ServiceFeed, feed_url: str, releases: list[Release]) -> str:
+    """Generate an Atom feed of a service's releases."""
+    ET.register_namespace("", ATOM_NS)
+
+    def sub(parent: ET.Element, tag: str, text: str | None = None, **attrs: str) -> ET.Element:
+        el = ET.SubElement(parent, f"{{{ATOM_NS}}}{tag}", attrs)
+        el.text = text
+        return el
+
+    root = ET.Element(f"{{{ATOM_NS}}}feed")
+    sub(root, "id", feed_url)
+    sub(root, "title", f"Release notes from {feed.name}")
+    sub(root, "link", rel="self", type="application/atom+xml", href=feed_url)
+    sub(root, "link", rel="alternate", type="text/html", href=feed.html_url)
+    # Atom requires a feed-level <updated>; fall back to the epoch if there are no releases.
+    sub(root, "updated", releases[0].published_at if releases else "1970-01-01T00:00:00Z")
+
+    for r in releases:
+        entry = sub(root, "entry")
+        sub(entry, "id", r.url)
+        sub(entry, "title", r.name)
+        sub(entry, "link", rel="alternate", type="text/html", href=r.url)
+        sub(entry, "updated", r.published_at)
+        sub(entry, "published", r.published_at)
+        author = sub(entry, "author")
+        sub(author, "name", feed.owner)
+        if r.body_html:
+            sub(entry, "content", r.body_html, type="html")
+        else:
+            sub(entry, "content", r.body, type="text")
+
+    ET.indent(root)
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")
 
 
 @click.command()
