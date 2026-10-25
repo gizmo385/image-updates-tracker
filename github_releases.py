@@ -196,14 +196,19 @@ async def get_recent_releases(
 ) -> list[Release] | None:
     """Fetch the most recent page of releases for a repo, newest first.
 
-    Release bodies are also requested as rendered HTML for use in feeds.
-    Returns None if GitHub returned an error.
+    Release bodies are requested only as rendered HTML for use in feeds; some
+    repos' release notes run to megabytes per page, so the page is kept small.
+    Returns None if the request failed or GitHub returned an error.
     """
-    resp = await client.get(
-        f"{GITHUB_API}/repos/{owner}/{repo}/releases",
-        headers={**_github_headers(), "Accept": "application/vnd.github.full+json"},
-        params={"per_page": 30},
-    )
+    try:
+        resp = await client.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/releases",
+            headers={**_github_headers(), "Accept": "application/vnd.github.html+json"},
+            params={"per_page": 15},
+        )
+    except httpx.HTTPError as e:
+        logger.error("GitHub request failed for %s/%s: %r", owner, repo, e)
+        return None
     if resp.status_code != 200:
         logger.error(
             "GitHub API error for %s/%s: %s %s",

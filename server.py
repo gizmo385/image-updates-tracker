@@ -132,7 +132,7 @@ def release_feed(owner: str, repo: str):
     excluded_words = load_release_exclusions(OVERRIDES_PATH).for_repo(service.owner, service.repo)
 
     async def _run():
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             return await get_recent_releases(
                 client, service.owner, service.repo, excluded_words=excluded_words
             )
