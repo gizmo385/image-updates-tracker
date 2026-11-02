@@ -17,20 +17,14 @@ from dataclasses import dataclass
 import discord
 from discord import ui
 
-from board_digest import VERDICTS, WAITING, BoardEntry
+from annotations import Annotations
 from digest import OverallDigest, ServiceDigest
 
 MAX_COMPONENTS = 40
 MAX_TEXT = 4000
 SUMMARY_CHARS = 280
 
-GREEN, AMBER, RED, BLUE, GREY = 0x2E7D32, 0xF9A825, 0xC62828, 0x3B82F6, 0x9E9E9E
-VERDICT_STYLE = {
-    "Easy": ("🟢", GREEN),
-    "Needs care": ("🟡", AMBER),
-    "Hold": ("🔴", RED),
-    WAITING: ("⏳", GREY),
-}
+AMBER, RED, BLUE = 0xF9A825, 0xC62828, 0x3B82F6
 
 
 @dataclass
@@ -93,40 +87,36 @@ def _add_rows(container: ui.Container, budget: Budget, rows: Iterable[tuple[str,
     return 0
 
 
-def board_view(entries: list[BoardEntry], other_updates: int = 0) -> ui.LayoutView:
-    """The Upgrades board, grouped by Claude's verdict."""
+def annotations_view(notes: Annotations, other_updates: int = 0) -> ui.LayoutView:
+    """Updates another service annotated (see annotations.py), grouped."""
     view = ui.LayoutView(timeout=None)
-    groups = [(v, [e for e in entries if e.verdict == v]) for v in (*VERDICTS, WAITING)]
-    worst = next((v for v in reversed(VERDICTS) if any(e.verdict == v for e in entries)), None)
-    container = ui.Container(accent_colour=VERDICT_STYLE[worst][1] if worst else BLUE)
+    container = ui.Container(accent_colour=BLUE)
     budget = Budget()
     budget.take(2, 0)  # the container and the closing footer
 
-    counts = " · ".join(f"{len(es)} {v.lower()}" for v, es in groups if es) or "nothing pending"
-    header = f"## Upgrades\n{counts}"
+    grouped = notes.grouped()
+    counts = " · ".join(f"{len(items)} {g.name.lower()}" for g, items in grouped) or "nothing pending"
+    header = f"## {notes.title}\n{counts}"
     budget.take(1, len(header))
     container.add_item(_text(header))
 
     skipped = 0
-    for verdict, items in groups:
-        if not items:
-            continue
-        emoji, _ = VERDICT_STYLE[verdict]
-        heading = f"### {emoji} {verdict}"
+    for group, items in grouped:
+        heading = f"### {group.emoji} {group.name}".replace("###  ", "### ")
         if skipped or not budget.take(2, len(heading)):
             skipped += len(items)
             continue
         container.add_item(ui.Separator())
         container.add_item(_text(heading))
         rows = []
-        for e in items:
-            line = f"**{e.title}**" + (f"\n{clip(e.reason, SUMMARY_CHARS)}" if e.reason else "")
-            rows.append((line, e.url, "Open card"))
+        for a in items:
+            line = f"**{a.title}**" + (f"\n{clip(a.note, SUMMARY_CHARS)}" if a.note else "")
+            rows.append((line, a.url, notes.link_label))
         skipped += _add_rows(container, budget, rows, footer=1)
 
     footer_bits = []
     if skipped:
-        footer_bits.append(f"…and {skipped} more on the board")
+        footer_bits.append(f"…and {skipped} more")
     if other_updates:
         footer_bits.append(f"{other_updates} other service{'s' if other_updates != 1 else ''} with updates below")
     if footer_bits:

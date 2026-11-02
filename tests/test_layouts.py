@@ -7,59 +7,40 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-import board_digest as bd  # noqa: E402
+import annotations as an  # noqa: E402
 import digest_layout as dl  # noqa: E402
 from digest import OverallDigest, ServiceDigest  # noqa: E402
-from vikunja_cards import Card  # noqa: E402
+
+PAYLOAD = {
+    "title": "Upgrades",
+    "link_label": "Open card",
+    "groups": [{"name": "Easy", "emoji": "🟢", "color": "#2e7d32"}, {"name": "Hold", "emoji": "🔴"},
+               {"name": "Waiting for assessment", "emoji": "⏳"}],
+    "items": [
+        {"repo": "o/r1", "title": "service1 1.0 → 2.0", "group": "Easy", "note": "Patch.", "url": "https://b/tasks/1"},
+        {"repo": "o/r2", "title": "service2 1.0 → 2.0", "group": "Hold", "note": "DB migration."},
+        {"repo": "O/R3", "title": "service3 1.0 → 2.0", "group": "Waiting for assessment"},
+    ],
+}
 
 
-def card(id, title, labels=(), done=False, repo="o/r"):
-    return Card.from_api({
-        "id": id, "title": title, "done": done,
-        "description": f"<p>Tracked repo: {repo}</p>",
-        "labels": [{"title": t} for t in labels],
-    })
+def test_parse_and_group():
+    notes = an.parse(PAYLOAD)
+    assert notes.title == "Upgrades" and notes.link_label == "Open card"
+    assert [(g.name, [a.repo for a in items]) for g, items in notes.grouped()] == [
+        ("Easy", ["o/r1"]), ("Hold", ["o/r2"]), ("Waiting for assessment", ["O/R3"])]
+    assert notes.repos == {"o/r1", "o/r2", "o/r3"}
 
 
-def test_verdict_from_labels():
-    assert bd.verdict_from_labels([{"title": "upgrade"}, {"title": "Verdict: needs care"}]) == "Needs care"
-    assert bd.verdict_from_labels([{"title": "Verdict: Maybe"}]) is None
-    assert bd.verdict_from_labels(None) is None
+def test_parse_is_lenient():
+    notes = an.parse({"items": [{"repo": "a/b", "group": "Mystery"}, {"title": "no repo"}, "junk"]})
+    assert [(g.name, len(items)) for g, items in notes.grouped()] == [("Mystery", 1)]
+    assert notes.items[0].title == "a/b" and notes.link_label == "Details"
+    assert an.parse(["not", "a", "dict"]).items == []
 
 
-@pytest.mark.parametrize("body,expected", [
-    ("<p><strong>Verdict: Easy</strong> Patch release, nothing to change.</p>", "Patch release, nothing to change."),
-    ("<p>Verdict: Easy.</p><p>Only bug fixes.</p>", "Only bug fixes."),
-    ("<p>Verdict - Easy - drop-in.</p>", "drop-in."),
-])
-def test_reason_from_comments(body, expected):
-    comments = [{"comment": "<p>Verdict: Hold old</p>"}, {"comment": "<p>Working on this</p>"}, {"comment": body}]
-    assert bd.reason_from_comments(comments, "Easy") == expected
-
-
-def test_reason_uses_newest_matching_comment():
-    comments = [{"comment": "<p>Verdict: Hold. Old reason.</p>"}, {"comment": "<p>Verdict: Hold. New reason.</p>"}]
-    assert bd.reason_from_comments(comments, "Hold") == "New reason."
-    assert bd.reason_from_comments([], "Hold") == ""
-
-
-def test_entries_from_sorts_and_skips_done():
-    cards = [
-        card(1, "b 1 → 2", ["Verdict: Hold"]),
-        card(2, "a 1 → 2"),
-        card(3, "c 1 → 2", ["Verdict: Easy"]),
-        card(4, "d 1 → 2", ["Verdict: Easy"], done=True),
-    ]
-    comments = {1: [{"comment": "<p>Verdict: Hold. DB migration.</p>"}]}
-    entries = bd.entries_from(cards, comments, "https://board.example/")
-    assert [(e.card_id, e.verdict) for e in entries] == [(3, "Easy"), (1, "Hold"), (2, bd.WAITING)]
-    assert entries[1].reason == "DB migration."
-    assert entries[0].url == "https://board.example/tasks/3"
-    assert bd.entries_from(cards, {}, None)[0].url is None
-
-
-def entry(i, verdict, url="https://b/tasks/1", reason="x" * 200):
-    return bd.BoardEntry(i, f"service{i} 1.0 → 2.0", f"o/r{i}", verdict, reason, url)
+def entry(i, group, url="https://b/tasks/1", note="x" * 200):
+    return {"repo": f"o/r{i}", "title": f"service{i} 1.0 → 2.0", "group": group, "note": note, "url": url}
 
 
 def build(fn, *args, **kw):
@@ -85,31 +66,31 @@ def within_limits(view):
     assert view.content_length() <= dl.MAX_TEXT
 
 
-def test_board_view_groups_by_verdict():
-    entries = [entry(1, "Easy"), entry(2, "Hold"), entry(3, bd.WAITING, url=None, reason="")]
-    view, comps = build(dl.board_view, entries, other_updates=2)
+def test_annotations_view_groups_in_order():
+    view, comps = build(dl.annotations_view, an.parse(PAYLOAD), other_updates=2)
     within_limits(view)
     container = comps[0]
-    assert container["type"] == 17 and container["accent_color"] == dl.RED
+    assert container["type"] == 17 and container["accent_color"] == dl.BLUE
     t = "\n".join(texts(comps))
-    assert "1 easy · 1 hold · 1 waiting for assessment" in t
-    assert t.index("Easy") < t.index("Hold") < t.index("Waiting")
+    assert t.startswith("## Upgrades\n1 easy · 1 hold · 1 waiting for assessment")
+    assert t.index("🟢 Easy") < t.index("🔴 Hold") < t.index("⏳ Waiting")
+    assert "DB migration." in t
     assert "2 other services with updates below" in t
     buttons = [c["accessory"] for c in container["components"] if c["type"] == 9]
-    assert [b["label"] for b in buttons] == ["Open card", "Open card"]
-    assert buttons[0]["url"] == "https://b/tasks/1"
+    assert [(b["label"], b["url"]) for b in buttons] == [("Open card", "https://b/tasks/1")]
 
 
-def test_board_view_overflow_stays_within_limits():
-    entries = [entry(i, ("Easy", "Needs care", "Hold")[i % 3]) for i in range(60)]
-    view, comps = build(dl.board_view, entries)
+def test_annotations_view_overflow_stays_within_limits():
+    groups = ("Easy", "Needs care", "Hold")
+    notes = an.parse({"groups": [{"name": g} for g in groups],
+                      "items": [entry(i, groups[i % 3]) for i in range(60)]})
+    view, comps = build(dl.annotations_view, notes)
     within_limits(view)
-    assert "more on the board" in "\n".join(texts(comps))
+    assert "more" in texts(comps)[-1]
 
 
-def test_board_view_empty():
-    view, comps = build(dl.board_view, [])
-    assert comps[0]["accent_color"] == dl.BLUE
+def test_annotations_view_empty():
+    view, comps = build(dl.annotations_view, an.Annotations())
     assert "nothing pending" in texts(comps)[0]
 
 

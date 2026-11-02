@@ -11,11 +11,10 @@ from discord import app_commands, ui
 from discord.ext import tasks
 from opentelemetry import trace
 
-import board_digest
+import annotations
 import update_cache
 from digest import summarize_all, summarize_service
-from digest_layout import PendingService, board_view, message_view, overall_view, service_view
-from vikunja_cards import Settings
+from digest_layout import PendingService, annotations_view, message_view, overall_view, service_view
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +28,8 @@ OVERRIDES_PATH = Path(os.environ.get("OVERRIDES_PATH", "/config/overrides.yaml")
 _raw_channel = os.environ.get("DIGEST_CHANNEL_ID")
 DIGEST_CHANNEL_ID: int | None = int(_raw_channel) if _raw_channel else None
 DIGEST_CRON: str = os.environ.get("DIGEST_CRON", "0 9 * * *")
-# Where "Open card" buttons point, e.g. https://board.example.com. Optional.
-VIKUNJA_PUBLIC_URL: str | None = os.environ.get("VIKUNJA_PUBLIC_URL") or None
+# Optional notes on pending updates to lead the digest with (annotations.py).
+ANNOTATIONS_URL: str | None = annotations.url_from_env()
 
 
 class DigestBot(discord.Client):
@@ -85,26 +84,24 @@ async def _build_digest_views(
 ) -> list[ui.LayoutView]:
     """The digest as one or two messages, or [] when nothing is pending.
 
-    With Vikunja configured, the first message is the Upgrades board grouped
-    by Claude's verdicts, and services not on the board get the Ollama
-    digest in a second message. Without Vikunja, or if it can't be reached,
-    it's the Ollama digest alone, as before.
+    With ANNOTATIONS_URL set, the first message lists the annotated updates
+    by group, and services it doesn't cover get the Ollama digest in a second
+    message. Without it, or if it can't be reached, it's the Ollama digest
+    alone.
     """
     with_updates = sorted((s for s in cached.values() if s.has_updates), key=lambda s: s.name.lower())
-    settings = Settings.from_env()
-    if settings is not None:
+    if ANNOTATIONS_URL:
         try:
-            entries = await board_digest.fetch(settings, VIKUNJA_PUBLIC_URL)
+            notes = await annotations.fetch(ANNOTATIONS_URL)
         except Exception:
-            logger.exception("Couldn't read the Upgrades board; sending the Ollama digest instead")
+            logger.exception("Couldn't fetch %s; sending the Ollama digest instead", ANNOTATIONS_URL)
         else:
-            on_board = {e.repo for e in entries if e.repo}
-            others = [s for s in with_updates if f"{s.owner}/{s.repo}" not in on_board]
+            others = [s for s in with_updates if f"{s.owner}/{s.repo}".lower() not in notes.repos]
             views = []
-            if entries:
-                views.append(board_view(entries, other_updates=len(others)))
+            if notes.items:
+                views.append(annotations_view(notes, other_updates=len(others)))
             if others:
-                title = "Other updates" if entries else "Docker Services — Update Digest"
+                title = "Other updates" if notes.items else "Docker Services — Update Digest"
                 views.append(await _ollama_view(others, len(cached), title))
             return views
     if not with_updates:
