@@ -19,3 +19,8 @@ dependencies = [
     "packaging>=24.0",
     "pyyaml>=6.0,<7",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
