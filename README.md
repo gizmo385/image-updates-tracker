@@ -59,6 +59,7 @@ cp .env.example .env
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API base URL |
 | `OLLAMA_MODEL` | `qwen2.5:1.5b` | Ollama model to use for digest summaries |
 | `DIGEST_CRON` | `0 9 * * *` | When to send summaries via the Discord bot |
+| `DIGEST_CHANNEL_ID` | _(none)_ | Channel for the scheduled digest; without it only `/digest` works |
 
 
 ## Vikunja cards (optional)
@@ -84,6 +85,25 @@ After each refresh:
 Cards are matched to repos by the `Tracked repo:` and `Version to assess:`
 lines in their description, so leave those in place. Only the web server
 files cards; the Discord bot doesn't, even with the same `.env`.
+
+### Board digest in Discord
+
+Digest messages use Discord's Components v2 layouts (a coloured container
+with a link button beside each service). If the Discord bot also has the
+three `VIKUNJA_*` variables, its digest reads the board first:
+
+1. **Upgrades**: open cards grouped by the verdict label the assessment left
+   (`Verdict: Easy`, `Verdict: Needs care`, `Verdict: Hold`), each with the
+   one-sentence reason from the assessment and an "Open card" button. Cards
+   not assessed yet are listed as waiting.
+2. **Other updates**: services with updates that have no card (for example,
+   images not listed in `versions.yaml`) get the Ollama summary as before.
+
+Set `VIKUNJA_PUBLIC_URL` (e.g. `https://board.example.com`) for the "Open card"
+buttons; without it the cards are listed without buttons. The bot's token
+only needs to read tasks, labels and comments. Without the `VIKUNJA_*`
+variables, or if Vikunja can't be reached, the bot sends the Ollama digest
+alone.
 
 ## Running with Docker Compose
 

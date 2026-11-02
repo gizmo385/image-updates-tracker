@@ -7,12 +7,15 @@ from pathlib import Path
 import discord
 import httpx
 from croniter import croniter
-from discord import app_commands
+from discord import app_commands, ui
 from discord.ext import tasks
 from opentelemetry import trace
 
+import board_digest
 import update_cache
-from digest import OverallDigest, ServiceDigest, summarize_all, summarize_service
+from digest import summarize_all, summarize_service
+from digest_layout import PendingService, board_view, message_view, overall_view, service_view
+from vikunja_cards import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,8 @@ OVERRIDES_PATH = Path(os.environ.get("OVERRIDES_PATH", "/config/overrides.yaml")
 _raw_channel = os.environ.get("DIGEST_CHANNEL_ID")
 DIGEST_CHANNEL_ID: int | None = int(_raw_channel) if _raw_channel else None
 DIGEST_CRON: str = os.environ.get("DIGEST_CRON", "0 9 * * *")
+# Where "Open card" buttons point, e.g. https://board.example.com. Optional.
+VIKUNJA_PUBLIC_URL: str | None = os.environ.get("VIKUNJA_PUBLIC_URL") or None
 
 
 class DigestBot(discord.Client):
@@ -56,38 +61,55 @@ async def _before_refresh():
     await bot.wait_until_ready()
 
 
-async def _build_digest_embed(
-    cached: dict[str, update_cache.ServiceStatus],
-) -> discord.Embed | None:
-    """Build an overall digest embed, or return None if no services have updates."""
-    services_with_updates = {
-        name: (status.current_version, status.releases)
-        for name, status in cached.items()
-        if status.has_updates
-    }
-    if not services_with_updates:
-        return None
+def _pending(status: update_cache.ServiceStatus) -> PendingService:
+    return PendingService(
+        name=status.name,
+        current_version=status.current_version,
+        latest_version=status.latest_version,
+        releases_url=status.html_url,
+    )
 
+
+async def _ollama_view(
+    with_updates: list[update_cache.ServiceStatus], total: int, title: str
+) -> ui.LayoutView:
     async with httpx.AsyncClient() as client:
-        result = await summarize_all(client, services_with_updates)
-
-    embed = discord.Embed(
-        title="Docker Services — Update Digest",
-        color=discord.Color.gold(),
-    )
-    if result.alerts and result.alerts != "None":
-        embed.add_field(
-            name="Alerts",
-            value=result.alerts[:1024],
-            inline=False,
+        result = await summarize_all(
+            client, {s.name: (s.current_version, s.releases) for s in with_updates}
         )
-    for name, summary in result.services.items():
-        if summary:
-            embed.add_field(name=name, value=summary[:1024], inline=False)
-    embed.set_footer(
-        text=f"{len(services_with_updates)} of {len(cached)} services have pending updates"
-    )
-    return embed
+    return overall_view([_pending(s) for s in with_updates], result, total, title)
+
+
+async def _build_digest_views(
+    cached: dict[str, update_cache.ServiceStatus],
+) -> list[ui.LayoutView]:
+    """The digest as one or two messages, or [] when nothing is pending.
+
+    With Vikunja configured, the first message is the Upgrades board grouped
+    by Claude's verdicts, and services not on the board get the Ollama
+    digest in a second message. Without Vikunja, or if it can't be reached,
+    it's the Ollama digest alone, as before.
+    """
+    with_updates = sorted((s for s in cached.values() if s.has_updates), key=lambda s: s.name.lower())
+    settings = Settings.from_env()
+    if settings is not None:
+        try:
+            entries = await board_digest.fetch(settings, VIKUNJA_PUBLIC_URL)
+        except Exception:
+            logger.exception("Couldn't read the Upgrades board; sending the Ollama digest instead")
+        else:
+            on_board = {e.repo for e in entries if e.repo}
+            others = [s for s in with_updates if f"{s.owner}/{s.repo}" not in on_board]
+            views = []
+            if entries:
+                views.append(board_view(entries, other_updates=len(others)))
+            if others:
+                title = "Other updates" if entries else "Docker Services — Update Digest"
+                views.append(await _ollama_view(others, len(cached), title))
+            return views
+    if not with_updates:
+        return []
+    return [await _ollama_view(with_updates, len(cached), "Docker Services — Update Digest")]
 
 
 async def _scheduled_digest_loop() -> None:
@@ -107,8 +129,8 @@ async def _scheduled_digest_loop() -> None:
                 if not cached:
                     continue
 
-                embed = await _build_digest_embed(cached)
-                if embed is None:
+                views = await _build_digest_views(cached)
+                if not views:
                     logger.info("Scheduled digest: all services up to date, skipping")
                     continue
 
@@ -118,7 +140,8 @@ async def _scheduled_digest_loop() -> None:
                     logger.error("Digest channel %s not found", DIGEST_CHANNEL_ID)
                     continue
 
-                await channel.send(embed=embed)
+                for view in views:
+                    await channel.send(view=view)
                 logger.info("Scheduled digest posted to #%s", channel.name)
             except Exception:
                 logger.exception("Error posting scheduled digest")
@@ -179,40 +202,19 @@ async def _handle_single_service(
         return
 
     result = await summarize_service(client, status.name, status.current_version, status.releases)
-
-    embed = discord.Embed(
-        title=f"{status.name} — Update Digest",
-        color=discord.Color.blue(),
-        url=status.html_url,
-    )
-    embed.add_field(name="Summary", value=result.summary[:1024], inline=False)
-    if result.breaking_changes and result.breaking_changes != "None":
-        embed.add_field(
-            name="Breaking Changes",
-            value=result.breaking_changes[:1024],
-            inline=False,
-        )
-    if result.security_fixes and result.security_fixes != "None":
-        embed.add_field(
-            name="Security Fixes",
-            value=result.security_fixes[:1024],
-            inline=False,
-        )
-    embed.set_footer(
-        text=f"Running: {status.current_version} → Latest: {status.latest_version} ({len(status.releases)} releases behind)"
-    )
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(view=service_view(_pending(status), result, len(status.releases)))
 
 
 async def _handle_overall_digest(
     interaction: discord.Interaction,
     cached: dict[str, update_cache.ServiceStatus],
 ):
-    embed = await _build_digest_embed(cached)
-    if embed is None:
-        await interaction.followup.send("All services are up to date!")
+    views = await _build_digest_views(cached)
+    if not views:
+        await interaction.followup.send(view=message_view("All services are up to date!"))
         return
-    await interaction.followup.send(embed=embed)
+    for view in views:
+        await interaction.followup.send(view=view)
 
 
 @digest_command.autocomplete("service")
