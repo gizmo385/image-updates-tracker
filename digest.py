@@ -29,6 +29,28 @@ class OverallDigest:
 
     alerts: str = "None"
     services: dict[str, str] = field(default_factory=dict)
+    # Alerts by service name. ``alerts`` is the same text as one string, for
+    # the web page; it holds a bare string when the model didn't name services.
+    service_alerts: dict[str, str] = field(default_factory=dict)
+
+
+_NONE = {"", "none", "n/a", "no", "null"}
+
+
+def _parse_alerts(raw: object, service_names: list[str]) -> tuple[str, dict[str, str]]:
+    """Normalise the model's "alerts" into (summary string, {service: alert})."""
+    if isinstance(raw, dict):
+        by_lower = {n.lower(): n for n in service_names}
+        alerts = {}
+        for name, text in raw.items():
+            text = str(text or "").strip()
+            service = by_lower.get(str(name).strip().lower())
+            if service and text.lower().rstrip(".") not in _NONE:
+                alerts[service] = text
+        summary = "; ".join(f"{n}: {t}" for n, t in alerts.items()) or "None"
+        return summary, alerts
+    text = str(raw or "").strip()
+    return (text if text.lower().rstrip(".") not in _NONE else "None"), {}
 
 
 async def _chat(client: httpx.AsyncClient, prompt: str) -> str:
@@ -141,7 +163,7 @@ async def summarize_all(
 
 Respond with ONLY a JSON object (no other text) with these keys:
 - "services": an object mapping each service name to a 1-3 sentence summary of the notable changes in the update (bug fixes, new features, improvements, dependency updates, etc.)
-- "alerts": any breaking changes or security fixes needing immediate attention as a short summary, or "None" if there are none
+- "alerts": an object mapping a service name to one sentence naming the breaking change or security fix in that service's update that needs attention before upgrading (for example "Drops support for PostgreSQL 14" or "Fixes CVE-2026-1234 in the login page"). Include only services whose release notes actually describe such a change. Use {{}} if there are none. Never describe a change without saying what it is.
 
 The service names MUST be exactly: {json.dumps(service_names)}
 
@@ -154,9 +176,11 @@ Do NOT use markdown headers. Use plain text with **bold** for emphasis if needed
         raw = await _chat(client, prompt)
         data = _extract_json(raw)
         if data and "services" in data:
+            alerts, service_alerts = _parse_alerts(data.get("alerts"), service_names)
             return OverallDigest(
-                alerts=data.get("alerts", "None"),
+                alerts=alerts,
                 services=data.get("services", {}),
+                service_alerts=service_alerts,
             )
         if attempt == 0:
             logger.warning("Failed to parse digest JSON, retrying")
