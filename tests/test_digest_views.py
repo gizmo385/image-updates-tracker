@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-import board_digest as bd  # noqa: E402
+import annotations as an  # noqa: E402
 import discord_bot  # noqa: E402
 from digest import OverallDigest  # noqa: E402
 from github_releases import Release  # noqa: E402
@@ -39,38 +39,39 @@ def run(cached):
     return asyncio.run(go())
 
 
-def test_without_vikunja_is_ollama_only(monkeypatch):
-    for var in ("VIKUNJA_API_URL", "VIKUNJA_API_TOKEN", "VIKUNJA_PROJECT_ID"):
-        monkeypatch.delenv(var, raising=False)
+def test_without_annotations_is_ollama_only(monkeypatch):
+    monkeypatch.setattr(discord_bot, "ANNOTATIONS_URL", None)
     views, heads = run(CACHED)
     assert heads == ["## Docker Services — Update Digest"]
     assert run({"c": CACHED["c"]})[0] == []
 
 
-@pytest.fixture
-def vikunja_env(monkeypatch):
-    monkeypatch.setenv("VIKUNJA_API_URL", "http://vikunja/api/v1")
-    monkeypatch.setenv("VIKUNJA_API_TOKEN", "t")
-    monkeypatch.setenv("VIKUNJA_PROJECT_ID", "2")
+def fake_fetch(monkeypatch, items=None, error=None):
+    monkeypatch.setattr(discord_bot, "ANNOTATIONS_URL", "http://board/annotations")
+
+    async def fetch(url):
+        assert url == "http://board/annotations"
+        if error:
+            raise error
+        return an.parse({"title": "Upgrades", "items": items or []})
+    monkeypatch.setattr(an, "fetch", fetch)
 
 
-def test_board_first_then_services_not_on_board(monkeypatch, vikunja_env):
-    async def fetch(settings, public_url=None):
-        return [bd.BoardEntry(1, "Alpha 1.0 → 2.0", "o/alpha", "Easy", "Fine.", None)]
-    monkeypatch.setattr(bd, "fetch", fetch)
-    views, heads = run(CACHED)
-    assert heads == ["## Upgrades", "## Other updates"]
+def test_annotated_first_then_the_rest(monkeypatch):
+    fake_fetch(monkeypatch, [{"repo": "O/Alpha", "title": "Alpha 1.0 → 2.0", "group": "Easy"}])
+    assert run(CACHED)[1] == ["## Upgrades", "## Other updates"]
 
 
-def test_board_only_when_everything_is_on_it(monkeypatch, vikunja_env):
-    async def fetch(settings, public_url=None):
-        return [bd.BoardEntry(i, n, f"o/{n}", "Hold", "", None) for i, n in enumerate(("alpha", "beta"))]
-    monkeypatch.setattr(bd, "fetch", fetch)
+def test_only_annotations_when_everything_is_covered(monkeypatch):
+    fake_fetch(monkeypatch, [{"repo": f"o/{n}", "title": n, "group": "Hold"} for n in ("alpha", "beta")])
     assert run(CACHED)[1] == ["## Upgrades"]
 
 
-def test_falls_back_to_ollama_when_board_unreachable(monkeypatch, vikunja_env):
-    async def fetch(settings, public_url=None):
-        raise RuntimeError("connection refused")
-    monkeypatch.setattr(bd, "fetch", fetch)
+def test_no_annotated_items_is_plain_digest(monkeypatch):
+    fake_fetch(monkeypatch, [])
+    assert run(CACHED)[1] == ["## Docker Services — Update Digest"]
+
+
+def test_falls_back_to_ollama_when_annotations_unreachable(monkeypatch):
+    fake_fetch(monkeypatch, error=RuntimeError("connection refused"))
     assert run(CACHED)[1] == ["## Docker Services — Update Digest"]
