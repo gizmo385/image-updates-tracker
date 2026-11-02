@@ -73,7 +73,7 @@ cover get the Ollama summary in a second message. Without it, or if it can't
 be reached, the bot sends the Ollama digest alone.
 
 The tracker doesn't care what produces the annotations. For example,
-[alpenglow's upgrades board](https://github.com/gizmo385/alpenglow/tree/main/upgrades-board)
+[alpenglow's dashboard](https://github.com/gizmo385/alpenglow/tree/main/alpenglow_dashboard)
 files a Vikunja card for each pending update, has Claude assess it, and serves
 the verdicts this way. The URL must return JSON like:
 

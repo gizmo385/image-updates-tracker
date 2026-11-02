@@ -2,8 +2,8 @@
 
 If ``ANNOTATIONS_URL`` is set, the Discord digest fetches it and leads with
 those updates, grouped. Updates it covers are left out of the Ollama summary.
-The tracker doesn't care where the notes come from: alpenglow's upgrades
-board serves Claude's upgrade verdicts this way, but anything that returns
+The tracker doesn't care where the notes come from: alpenglow's dashboard
+serves Claude's upgrade verdicts this way, but anything that returns
 this JSON works::
 
     {
