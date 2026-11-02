@@ -136,27 +136,35 @@ def board_view(entries: list[BoardEntry], other_updates: int = 0) -> ui.LayoutVi
 
 
 def overall_view(services: list[PendingService], digest: OverallDigest, total: int, title: str) -> ui.LayoutView:
-    """The Ollama digest: alerts, then one line per service with a link to its releases."""
+    """The Ollama digest: one row per service, with any alert on that service's row."""
     view = ui.LayoutView(timeout=None)
-    has_alerts = bool(digest.alerts and digest.alerts.strip() and digest.alerts.strip() != "None")
-    container = ui.Container(accent_colour=RED if has_alerts else AMBER)
+    alerted = [s.name for s in services if digest.service_alerts.get(s.name)]
+    # A bare alert string means the model didn't say which service it's about.
+    loose = "" if digest.service_alerts else (digest.alerts or "").strip()
+    loose = "" if loose.lower().rstrip(".") in ("", "none") else loose
+    container = ui.Container(accent_colour=RED if (alerted or loose) else AMBER)
     budget = Budget()
     budget.take(2, 60)  # container and footer
 
     header = f"## {title}"
+    if alerted:
+        header += f"\n⚠️ Check before upgrading: {', '.join(alerted)}"
     budget.take(1, len(header))
     container.add_item(_text(header))
-    if has_alerts:
-        alerts = f"**⚠️ Alerts**\n{clip(digest.alerts, 600)}"
-        budget.take(1, len(alerts))
-        container.add_item(_text(alerts))
+    if loose:
+        note = f"**⚠️ Possible breaking or security changes** (service not named)\n{clip(loose, 600)}"
+        budget.take(1, len(note))
+        container.add_item(_text(note))
     budget.take(1, 0)
     container.add_item(ui.Separator())
 
     rows = []
     for s in services:
         summary = digest.services.get(s.name) or s.summary
+        alert = digest.service_alerts.get(s.name)
         line = f"**{s.name}** `{s.current_version}` → `{s.latest_version}`"
+        if alert:
+            line += f"\n⚠️ {clip(alert, 200)}"
         if summary:
             line += f"\n{clip(summary, SUMMARY_CHARS)}"
         rows.append((line, s.releases_url, "Releases"))

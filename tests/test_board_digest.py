@@ -117,15 +117,39 @@ def pending(i):
     return dl.PendingService(f"svc{i}", "1.0", "2.0", f"https://github.com/o/r{i}/releases")
 
 
-def test_overall_view():
+def test_overall_view_puts_alerts_on_their_service():
     services = [pending(i) for i in range(3)]
-    digest = OverallDigest(alerts="svc1 drops Postgres 14", services={"svc0": "Bug fixes."})
+    digest = OverallDigest(alerts="svc1: Drops Postgres 14", services={"svc0": "Bug fixes."},
+                           service_alerts={"svc1": "Drops Postgres 14"})
     view, comps = build(dl.overall_view, services, digest, 10, "Other updates")
     within_limits(view)
-    t = "\n".join(texts(comps))
+    t = texts(comps)
     assert comps[0]["accent_color"] == dl.RED
-    assert "## Other updates" in t and "Postgres 14" in t and "Bug fixes." in t
-    assert "3 of 10 services have pending updates" in t
+    assert t[0] == "## Other updates\n⚠️ Check before upgrading: svc1"
+    row = next(x for x in t if x.startswith("**svc1**"))
+    assert "⚠️ Drops Postgres 14" in row
+    assert "Bug fixes." in "\n".join(t)
+    assert "3 of 10 services have pending updates" in t[-1]
+
+
+def test_overall_view_unattributed_alert_says_so():
+    digest = OverallDigest(alerts="Updates the security engine.")
+    view, comps = build(dl.overall_view, [pending(1)], digest, 1, "Digest")
+    assert "service not named" in texts(comps)[1]
+    view, comps = build(dl.overall_view, [pending(1)], OverallDigest(), 1, "Digest")
+    assert comps[0]["accent_color"] == dl.AMBER
+    assert not any("⚠️" in x for x in texts(comps))
+
+
+def test_parse_alerts():
+    from digest import _parse_alerts
+    names = ["Jellyfin", "Crowdsec"]
+    summary, alerts = _parse_alerts({"jellyfin": "Requires a library rescan.", "Crowdsec": "None", "Other": "x"}, names)
+    assert alerts == {"Jellyfin": "Requires a library rescan."}
+    assert summary == "Jellyfin: Requires a library rescan."
+    assert _parse_alerts({}, names) == ("None", {})
+    assert _parse_alerts("None.", names) == ("None", {})
+    assert _parse_alerts("Something vague", names) == ("Something vague", {})
 
 
 def test_overall_view_overflow():
