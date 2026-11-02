@@ -61,6 +61,30 @@ cp .env.example .env
 | `DIGEST_CRON` | `0 9 * * *` | When to send summaries via the Discord bot |
 
 
+## Vikunja cards (optional)
+
+The web server can keep a Vikunja project in step with pending updates, one
+card per repo. Set:
+
+| Variable | Description |
+|---|---|
+| `VIKUNJA_API_URL` | Vikunja's API base, e.g. `http://vikunja:3456/api/v1` |
+| `VIKUNJA_API_TOKEN` | An API token that can read, create and update tasks and create comments |
+| `VIKUNJA_PROJECT_ID` | The project to file cards in |
+| `VERSIONS_PATH` | Optional. A `versions.yaml` lock file: only images listed there get cards, never `policy: float` ones, and each card lists the image's policy and `compatibility` list |
+
+After each refresh:
+
+- A new release with no card gets one, titled like `Tandoor 2.7.2 → 2.8.0`.
+- An open card for an older release is retitled and gets an `@claude` comment
+  asking for a fresh assessment.
+- An open card is marked done once the service runs that version.
+- A card closed without upgrading isn't filed again for the same version.
+
+Cards are matched to repos by the `Tracked repo:` and `Version to assess:`
+lines in their description, so leave those in place. Only the web server
+files cards; the Discord bot doesn't, even with the same `.env`.
+
 ## Running with Docker Compose
 
 ```yaml

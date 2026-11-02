@@ -20,6 +20,7 @@ from docker_release_feeds import (
 )
 from github_releases import Release, get_releases_since
 from registry import resolve_version_from_registry
+import vikunja_cards
 
 # Refreshes run from timers and background threads, so they get their own root
 # span for the Docker/GitHub/registry calls to hang off.
@@ -205,8 +206,12 @@ async def fetch(
     }
 
 
-async def refresh_async(overrides_path: Path) -> None:
-    """Refresh the cache (async — for use in the discord bot)."""
+async def refresh_async(overrides_path: Path, file_cards: bool = False) -> None:
+    """Refresh the cache (async — for use in the discord bot).
+
+    With *file_cards*, also sync Vikunja cards when Vikunja is configured. Only
+    the web server passes it, so the bot and server don't both file cards.
+    """
     with tracer.start_as_current_span("refresh update cache") as span:
         try:
             services = await fetch(overrides_path)
@@ -217,6 +222,15 @@ async def refresh_async(overrides_path: Path) -> None:
             span.record_exception(exc)
             span.set_status(trace.StatusCode.ERROR)
             logger.exception("Failed to refresh update cache")
+            return
+    if file_cards:
+        with tracer.start_as_current_span("sync vikunja cards") as span:
+            try:
+                await vikunja_cards.sync(services)
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(trace.StatusCode.ERROR)
+                logger.exception("Failed to sync Vikunja cards")
 
 
 def refresh(overrides_path: Path) -> None:
@@ -228,7 +242,7 @@ def refresh(overrides_path: Path) -> None:
     with _refresh_lock:
         _refreshing = True
         try:
-            asyncio.run(refresh_async(overrides_path))
+            asyncio.run(refresh_async(overrides_path, file_cards=True))
         finally:
             _refreshing = False
 
