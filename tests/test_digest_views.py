@@ -74,3 +74,31 @@ def test_falls_back_to_ollama_when_board_unreachable(monkeypatch, vikunja_env):
         raise RuntimeError("connection refused")
     monkeypatch.setattr(bd, "fetch", fetch)
     assert run(CACHED)[1] == ["## Docker Services — Update Digest"]
+
+
+class FakeInteraction:
+    def __init__(self):
+        self.sent = []
+
+        class Followup:
+            async def send(inner, view=None):
+                self.sent.append(("followup", view))
+
+        self.followup = Followup()
+
+    async def edit_original_response(self, view=None):
+        self.sent.append(("original", view))
+
+
+def test_reply_replaces_placeholder_then_follows_up(monkeypatch, vikunja_env):
+    async def fetch(settings, public_url=None):
+        return [bd.BoardEntry(1, "Alpha 1.0 → 2.0", "o/alpha", "Easy", "Fine.", None)]
+    monkeypatch.setattr(bd, "fetch", fetch)
+
+    async def go():
+        interaction = FakeInteraction()
+        await discord_bot._handle_overall_digest(interaction, CACHED)
+        return [kind for kind, _ in interaction.sent], titles([v for _, v in interaction.sent])
+    kinds, heads = asyncio.run(go())
+    assert kinds == ["original", "followup"]
+    assert heads == ["## Upgrades", "## Other updates"]

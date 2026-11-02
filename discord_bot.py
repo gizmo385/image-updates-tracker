@@ -202,18 +202,27 @@ async def _handle_single_service(
         return
 
     result = await summarize_service(client, status.name, status.current_version, status.releases)
-    await interaction.followup.send(view=service_view(_pending(status), result, len(status.releases)))
+    await _reply_with_views(interaction, [service_view(_pending(status), result, len(status.releases))])
 
 
 async def _handle_overall_digest(
     interaction: discord.Interaction,
     cached: dict[str, update_cache.ServiceStatus],
 ):
-    views = await _build_digest_views(cached)
-    if not views:
-        await interaction.followup.send(view=message_view("All services are up to date!"))
-        return
-    for view in views:
+    views = await _build_digest_views(cached) or [message_view("All services are up to date!")]
+    await _reply_with_views(interaction, views)
+
+
+async def _reply_with_views(interaction: discord.Interaction, views: list[ui.LayoutView]) -> None:
+    """Answer a deferred command with one message per view.
+
+    The first view replaces the "thinking..." placeholder explicitly. Sending
+    every view as a followup let a later one overwrite the first, so the
+    Upgrades message vanished and only "Other updates" was left.
+    """
+    first, *rest = views
+    await interaction.edit_original_response(view=first)
+    for view in rest:
         await interaction.followup.send(view=view)
 
 
