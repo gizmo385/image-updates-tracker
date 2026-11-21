@@ -52,3 +52,10 @@ def test_older_patch_on_own_line_still_stops():
     # Current version was never released on GitHub; 1.4.1 is past it.
     pages = [_releases("v1.5.0", "v1.4.1"), _releases("v1.4.0")]
     assert _fetch(pages, "1.4.2") == ["v1.5.0"]
+
+
+def test_unparseable_tags_past_an_older_release_are_not_new():
+    # 1.4.2 was never released on GitHub. Before the older 1.3.9, "build-7"
+    # still counts as possibly new; after it, "build-3" can't be.
+    pages = [_releases("v1.5.0", "build-7", "v1.3.9", "build-3"), _releases("v1.3.8")]
+    assert _fetch(pages, "1.4.2") == ["v1.5.0", "build-7"]

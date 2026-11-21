@@ -139,6 +139,9 @@ async def get_releases_since(
     newest-first order.
     """
     newer: list[Release] = []
+    # Set once we skip an older release. Anything unparseable after that point
+    # predates the current version, so it no longer counts as new.
+    passed_older = False
     page = 1
 
     while True:
@@ -183,8 +186,9 @@ async def get_releases_since(
                 # releases), so skip it and keep looking.
                 if _same_line(tag, current_version):
                     return _by_version(newer)
+                passed_older = True
                 continue
-            else:
+            elif not passed_older:
                 # Non-semver tag: include it and keep looking for an exact match.
                 # The 10-page safety limit prevents runaway pagination.
                 newer.append(_to_release(r))
