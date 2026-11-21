@@ -91,6 +91,31 @@ def _is_same(release_tag: str, current_version: str) -> bool:
         return False
 
 
+def _same_line(release_tag: str, current_version: str) -> bool:
+    """True if both versions share a major.minor release line (25.12.4 and 25.12.5)."""
+    try:
+        release_v = Version(normalize_version(release_tag))
+        current_v = Version(normalize_version(current_version))
+    except InvalidVersion:
+        return False
+    return release_v.release[:2] == current_v.release[:2]
+
+
+def _by_version(releases: list[Release]) -> list[Release]:
+    """Order releases newest version first, so latest_version is the highest one.
+
+    Projects that patch several lines at once can publish a 25.12 backport after
+    26.10, so publish order isn't version order. Lists with a tag that isn't a
+    version keep GitHub's order.
+    """
+    try:
+        return sorted(
+            releases, key=lambda r: Version(normalize_version(r.tag)), reverse=True
+        )
+    except InvalidVersion:
+        return releases
+
+
 def _github_headers() -> dict[str, str]:
     headers = {"Accept": "application/vnd.github+json"}
     token = os.environ.get("GITHUB_TOKEN")
@@ -114,6 +139,9 @@ async def get_releases_since(
     newest-first order.
     """
     newer: list[Release] = []
+    # Set once we skip an older release. Anything unparseable after that point
+    # predates the current version, so it no longer counts as new.
+    passed_older = False
     page = 1
 
     while True:
@@ -144,7 +172,7 @@ async def get_releases_since(
 
             # Found the current version — we're done
             if _is_same(tag, current_version):
-                return newer
+                return _by_version(newer)
 
             comparison = _is_newer(tag, current_version)
 
@@ -152,9 +180,15 @@ async def get_releases_since(
             if comparison is True:
                 newer.append(_to_release(r))
             elif comparison is False:
-                # We've gone past the current version
-                return newer
-            else:
+                # An older patch on our own release line means we've gone past
+                # the current version. An older release on another line is a
+                # backport (ClickHouse ships 25.8-lts patches between 26.x
+                # releases), so skip it and keep looking.
+                if _same_line(tag, current_version):
+                    return _by_version(newer)
+                passed_older = True
+                continue
+            elif not passed_older:
                 # Non-semver tag: include it and keep looking for an exact match.
                 # The 10-page safety limit prevents runaway pagination.
                 newer.append(_to_release(r))
@@ -171,7 +205,7 @@ async def get_releases_since(
             )
             break
 
-    return newer
+    return _by_version(newer)
 
 
 async def get_latest_release(

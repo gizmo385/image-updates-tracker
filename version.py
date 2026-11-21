@@ -15,6 +15,12 @@ _NON_VERSION_TAGS = {
 }
 
 
+# Release-channel suffixes some projects put on every tag, such as ClickHouse's
+# "v26.10.9.24-stable" and "v25.8.12.5-lts". They name the channel, not a
+# prerelease, so they're dropped before comparing versions.
+_CHANNEL_SUFFIXES = ("-stable", "-lts")
+
+
 def _looks_like_version(tag: str) -> bool:
     """True if *tag* parses as a version once an optional leading 'v' is removed."""
     candidate = tag[1:] if tag[:1].lower() == "v" else tag
@@ -32,7 +38,8 @@ def normalize_version(tag: str) -> str:
     component prefixes like 'twenty/v2.20.0' or 'server/1.2.3' where the release
     tag is namespaced by the package it belongs to. The component prefix is only
     stripped when what remains actually looks like a version, so unusual tags
-    (e.g. 'nightly/build') are left untouched.
+    (e.g. 'nightly/build') are left untouched. A trailing release-channel
+    suffix ('-stable', '-lts') is dropped too.
     """
     # Monorepo component prefix: "twenty/v2.20.0" -> "v2.20.0"
     if "/" in tag:
@@ -43,6 +50,9 @@ def normalize_version(tag: str) -> str:
     for prefix in ("v", "release-", "release/"):
         if tag.lower().startswith(prefix):
             tag = tag[len(prefix):]
+    for suffix in _CHANNEL_SUFFIXES:
+        if tag.lower().endswith(suffix):
+            tag = tag[: -len(suffix)]
     return tag
 
 
