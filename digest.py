@@ -15,15 +15,6 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b")
 
 
 @dataclass
-class ServiceDigest:
-    """Structured summary for a single service."""
-
-    summary: str
-    breaking_changes: str = "None"
-    security_fixes: str = "None"
-
-
-@dataclass
 class OverallDigest:
     """Structured summary across all services."""
 
@@ -101,43 +92,6 @@ def _format_release_notes(releases: list[Release]) -> str:
     for r in releases:
         parts.append(f"## {r.name} ({r.tag})\n{r.body}")
     return "\n\n---\n\n".join(parts)
-
-
-async def summarize_service(
-    client: httpx.AsyncClient,
-    service_name: str,
-    current_version: str,
-    releases: list[Release],
-) -> ServiceDigest:
-    """Generate a structured summary for a single service's pending updates."""
-    notes = _format_release_notes(releases)
-    latest_tag = releases[0].tag if releases else "unknown"
-
-    prompt = f"""You are summarizing release notes for a Docker service called "{service_name}".
-The server is currently running version {current_version}. The latest version is {latest_tag}.
-There are {len(releases)} releases between the current and latest version.
-
-Here are the release notes (newest first):
-
-{notes}
-
-Respond with ONLY a JSON object (no other text) with these keys:
-- "summary": a concise 2-4 sentence overview of what changed
-- "breaking_changes": breaking changes as a short bulleted list, or "None"
-- "security_fixes": security-related fixes as a short bulleted list, or "None"
-
-Do NOT use markdown headers. Use plain text with **bold** for emphasis if needed."""
-
-    raw = await _chat(client, prompt)
-    data = _extract_json(raw)
-    if data:
-        return ServiceDigest(
-            summary=data.get("summary", raw),
-            breaking_changes=data.get("breaking_changes", "None"),
-            security_fixes=data.get("security_fixes", "None"),
-        )
-    # Fallback: put the whole response in summary
-    return ServiceDigest(summary=raw)
 
 
 async def summarize_all(
