@@ -30,6 +30,8 @@ DIGEST_CHANNEL_ID: int | None = int(_raw_channel) if _raw_channel else None
 DIGEST_CRON: str = os.environ.get("DIGEST_CRON", "0 9 * * *")
 # Optional notes on pending updates to lead the digest with (annotations.py).
 ANNOTATIONS_URL: str | None = annotations.url_from_env()
+# Other messages to lead with, such as security verdicts (annotations.py).
+EXTRA_ANNOTATIONS_URLS: list[str] = annotations.extra_urls_from_env()
 
 
 class DigestBot(discord.Client):
@@ -79,16 +81,37 @@ async def _ollama_view(
     return overall_view([_pending(s) for s in with_updates], result, total, title)
 
 
+async def _extra_views() -> list[ui.LayoutView]:
+    """One message per EXTRA_ANNOTATIONS_URLS entry that has items."""
+    views = []
+    for url in EXTRA_ANNOTATIONS_URLS:
+        try:
+            notes = await annotations.fetch(url, require_repo=False)
+        except Exception:
+            logger.exception("Couldn't fetch %s; leaving it out of the digest", url)
+            continue
+        if notes.items:
+            views.append(annotations_view(notes))
+    return views
+
+
 async def _build_digest_views(
     cached: dict[str, update_cache.ServiceStatus],
 ) -> list[ui.LayoutView]:
-    """The digest as one or two messages, or [] when nothing is pending.
+    """The digest's messages, or [] when there's nothing to say.
 
-    With ANNOTATIONS_URL set, the first message lists the annotated updates
-    by group, and services it doesn't cover get the Ollama digest in a second
-    message. Without it, or if it can't be reached, it's the Ollama digest
-    alone.
+    Messages from EXTRA_ANNOTATIONS_URLS come first, when they have items,
+    even with no updates pending. Then, with ANNOTATIONS_URL set, a message
+    lists the annotated updates by group, and services it doesn't cover get
+    the Ollama digest in another. Without it, or if it can't be reached, it's
+    the Ollama digest alone.
     """
+    return await _extra_views() + await _update_views(cached)
+
+
+async def _update_views(
+    cached: dict[str, update_cache.ServiceStatus],
+) -> list[ui.LayoutView]:
     with_updates = sorted((s for s in cached.values() if s.has_updates), key=lambda s: s.name.lower())
     if ANNOTATIONS_URL:
         try:
@@ -128,7 +151,7 @@ async def _scheduled_digest_loop() -> None:
 
                 views = await _build_digest_views(cached)
                 if not views:
-                    logger.info("Scheduled digest: all services up to date, skipping")
+                    logger.info("Scheduled digest: nothing to report, skipping")
                     continue
 
                 try:

@@ -24,7 +24,8 @@ MAX_COMPONENTS = 40
 MAX_TEXT = 4000
 SUMMARY_CHARS = 280
 
-AMBER, RED, BLUE = 0xF9A825, 0xC62828, 0x3B82F6
+AMBER, RED, BLUE, GREEN = 0xF9A825, 0xC62828, 0x3B82F6, 0x2E7D32
+ACCENTS = {"amber": AMBER, "red": RED, "blue": BLUE, "green": GREEN}
 
 
 @dataclass
@@ -90,7 +91,7 @@ def _add_rows(container: ui.Container, budget: Budget, rows: Iterable[tuple[str,
 def annotations_view(notes: Annotations, other_updates: int = 0) -> ui.LayoutView:
     """Updates another service annotated (see annotations.py), grouped."""
     view = ui.LayoutView(timeout=None)
-    container = ui.Container(accent_colour=BLUE)
+    container = ui.Container(accent_colour=ACCENTS.get(notes.accent or "", BLUE))
     budget = Budget()
     budget.take(2, 0)  # the container and the closing footer
 

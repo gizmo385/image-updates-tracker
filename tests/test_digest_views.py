@@ -75,3 +75,54 @@ def test_no_annotated_items_is_plain_digest(monkeypatch):
 def test_falls_back_to_ollama_when_annotations_unreachable(monkeypatch):
     fake_fetch(monkeypatch, error=RuntimeError("connection refused"))
     assert run(CACHED)[1] == ["## Docker Services — Update Digest"]
+
+
+# ── extra annotations (EXTRA_ANNOTATIONS_URLS) ───────────────────────────────
+
+SECURITY = {"title": "Security", "link_label": "Open card", "accent": "red",
+            "groups": [{"name": "Act now", "emoji": "🔴"}],
+            "items": [{"title": "Caddy: 2 open security findings", "group": "Act now", "repo": ""}]}
+
+
+def fake_extra(monkeypatch, docs, errors=()):
+    monkeypatch.setattr(discord_bot, "EXTRA_ANNOTATIONS_URLS", list(docs) + list(errors))
+
+    async def fetch(url, require_repo=True):
+        if url in errors:
+            raise RuntimeError("down")
+        assert require_repo is False
+        return an.parse(docs[url], require_repo)
+    monkeypatch.setattr(an, "fetch", fetch)
+
+
+def test_extra_comes_first(monkeypatch):
+    monkeypatch.setattr(discord_bot, "ANNOTATIONS_URL", None)
+    fake_extra(monkeypatch, {"http://dash/security": SECURITY})
+    views, heads = run(CACHED)
+    assert heads == ["## Security", "## Docker Services — Update Digest"]
+    assert views[0].to_components()[0]["accent_color"] == 0xC62828
+
+
+def test_extra_is_sent_with_no_updates(monkeypatch):
+    monkeypatch.setattr(discord_bot, "ANNOTATIONS_URL", None)
+    fake_extra(monkeypatch, {"http://dash/security": SECURITY})
+    assert run({"c": CACHED["c"]})[1] == ["## Security"]
+
+
+def test_empty_or_unreachable_extra_is_left_out(monkeypatch):
+    monkeypatch.setattr(discord_bot, "ANNOTATIONS_URL", None)
+    fake_extra(monkeypatch, {"http://dash/security": {**SECURITY, "items": []}}, errors=("http://down",))
+    assert run(CACHED)[1] == ["## Docker Services — Update Digest"]
+    assert run({"c": CACHED["c"]})[0] == []
+
+
+def test_extra_items_dont_need_a_repo_or_change_coverage():
+    notes = an.parse(SECURITY, require_repo=False)
+    assert [a.title for a in notes.items] == ["Caddy: 2 open security findings"]
+    assert notes.repos == set() and notes.accent == "red"
+    assert an.parse(SECURITY).items == []  # the upgrades view still needs a repo
+
+
+def test_extra_urls_from_env(monkeypatch):
+    monkeypatch.setenv("EXTRA_ANNOTATIONS_URLS", "http://a/x, http://b/y  http://c")
+    assert an.extra_urls_from_env() == ["http://a/x", "http://b/y", "http://c"]
