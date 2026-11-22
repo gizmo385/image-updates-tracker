@@ -126,8 +126,18 @@ def annotations_view(notes: Annotations, other_updates: int = 0) -> ui.LayoutVie
     return view
 
 
-def overall_view(services: list[PendingService], digest: OverallDigest, total: int, title: str) -> ui.LayoutView:
-    """The Ollama digest: one row per service, with any alert on that service's row."""
+def overall_view(
+    services: list[PendingService],
+    digest: OverallDigest,
+    total: int,
+    title: str,
+    waiting: list[str] | None = None,
+) -> ui.LayoutView:
+    """The Ollama digest: one row per service, with any alert on that service's row.
+
+    ``waiting`` names releases whose image isn't published yet ("Redis 8.12.0"),
+    listed in a line under the rows.
+    """
     view = ui.LayoutView(timeout=None)
     alerted = [s.name for s in services if digest.service_alerts.get(s.name)]
     # A bare alert string means the model didn't say which service it's about.
@@ -135,7 +145,7 @@ def overall_view(services: list[PendingService], digest: OverallDigest, total: i
     loose = "" if loose.lower().rstrip(".") in ("", "none") else loose
     container = ui.Container(accent_colour=RED if (alerted or loose) else AMBER)
     budget = Budget()
-    budget.take(2, 60)  # container and footer
+    budget.take(2, 60 + (350 if waiting else 0))  # container and footer
 
     header = f"## {title}"
     if alerted:
@@ -164,6 +174,8 @@ def overall_view(services: list[PendingService], digest: OverallDigest, total: i
     footer = f"-# {len(services)} of {total} services have pending updates"
     if skipped:
         footer += f" · {skipped} not shown"
+    if waiting:
+        footer += "\n-# ⏳ Released, image not published yet: " + clip(", ".join(waiting), 300)
     container.add_item(_text(footer))
     view.add_item(container)
     return view

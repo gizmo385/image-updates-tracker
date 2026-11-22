@@ -72,13 +72,14 @@ def _pending(status: update_cache.ServiceStatus) -> PendingService:
 
 
 async def _ollama_view(
-    with_updates: list[update_cache.ServiceStatus], total: int, title: str
+    with_updates: list[update_cache.ServiceStatus], total: int, title: str,
+    waiting: list[str] | None = None,
 ) -> ui.LayoutView:
     async with httpx.AsyncClient() as client:
         result = await summarize_all(
             client, {s.name: (s.current_version, s.releases) for s in with_updates}
         )
-    return overall_view([_pending(s) for s in with_updates], result, total, title)
+    return overall_view([_pending(s) for s in with_updates], result, total, title, waiting)
 
 
 async def _extra_views() -> list[ui.LayoutView]:
@@ -113,6 +114,7 @@ async def _update_views(
     cached: dict[str, update_cache.ServiceStatus],
 ) -> list[ui.LayoutView]:
     with_updates = sorted((s for s in cached.values() if s.has_updates), key=lambda s: s.name.lower())
+    waiting = sorted(f"{s.name} {s.waiting[0].tag}" for s in cached.values() if s.waiting)
     if ANNOTATIONS_URL:
         try:
             notes = await annotations.fetch(ANNOTATIONS_URL)
@@ -125,11 +127,11 @@ async def _update_views(
                 views.append(annotations_view(notes, other_updates=len(others)))
             if others:
                 title = "Other updates" if notes.items else "Docker Services — Update Digest"
-                views.append(await _ollama_view(others, len(cached), title))
+                views.append(await _ollama_view(others, len(cached), title, waiting))
             return views
     if not with_updates:
         return []
-    return [await _ollama_view(with_updates, len(cached), "Docker Services — Update Digest")]
+    return [await _ollama_view(with_updates, len(cached), "Docker Services — Update Digest", waiting)]
 
 
 async def _scheduled_digest_loop() -> None:
