@@ -60,6 +60,8 @@ cp .env.example .env
 | `OLLAMA_MODEL` | `qwen2.5:1.5b` | Ollama model to use for digest summaries |
 | `DIGEST_CRON` | `0 9 * * *` | When to send summaries via the Discord bot |
 | `DIGEST_CHANNEL_ID` | _(none)_ | Channel for the scheduled digest; without it only `/digest` works |
+| `ANNOTATIONS_URL` | _(none)_ | Notes on pending updates to lead the digest with (see below) |
+| `EXTRA_ANNOTATIONS_URLS` | _(none)_ | Other messages to send first, such as security verdicts (see below) |
 
 
 ## Annotations in the Discord digest (optional)
@@ -94,6 +96,16 @@ the verdicts this way. The URL must return JSON like:
 Other fields are ignored, so a service can serve the same JSON to other
 consumers. `GET /api/updates` on the web server gives you the tracker's side
 to build annotations from.
+
+### Extra messages
+
+`EXTRA_ANNOTATIONS_URLS` (space or comma separated) adds messages in the same
+JSON format that aren't about pending updates. alpenglow's dashboard uses it
+for Claude's security verdicts on open CVE findings. Each one is sent before
+the rest of the digest, even on a day with no updates, and left out when it
+has no items. Their items don't need `repo`, and they don't change which
+updates the Ollama summary covers. An optional `"accent"` (`"red"`,
+`"amber"`, `"green"` or `"blue"`) colours the message; the default is blue.
 
 ## Running with Docker Compose
 
