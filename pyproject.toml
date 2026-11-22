@@ -4,15 +4,12 @@ version = "0.1.0"
 description = "Serve a dynamic OPML feed of GitHub release notes for running Docker services"
 requires-python = ">=3.12"
 dependencies = [
-    "croniter>=2.0",
-    "discord.py>=2.6,<3",
     "docker>=7.0,<8",
     "flask>=3.0,<4",
     "gunicorn>=22.0,<24",
     "httpx>=0.27,<1",
     "opentelemetry-distro>=0.66b0",
     "opentelemetry-exporter-otlp-proto-http>=1.45.0",
-    "opentelemetry-instrumentation-aiohttp-client>=0.66b0",
     "opentelemetry-instrumentation-flask>=0.66b0",
     "opentelemetry-instrumentation-httpx>=0.66b0",
     "opentelemetry-instrumentation-requests>=0.66b0",

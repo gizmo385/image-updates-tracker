@@ -1,12 +1,8 @@
 # Images Updates Tracker
 
-Tracks running Docker containers and checks for newer releases on GitHub. Provides a web dashboard, an OPML list of per-service release feeds (with nightly/beta/RC builds filtered out), and an optional Discord bot that generates summaries of pending updates.
+Tracks running Docker containers and checks for newer releases on GitHub. Provides a web dashboard, an OPML list of per-service release feeds (with nightly/beta/RC builds filtered out), and a JSON API for other tools to build on. The web page can ask Ollama to summarise the pending release notes.
 
 ![Home page](./images/home_page.png)
-
-The Discord bot update messages look like:
-
-![Discord bot](./images/discord_bot.png)
 
 ## Configuration
 
@@ -55,13 +51,8 @@ cp .env.example .env
 |---|---|---|
 | `OVERRIDES_PATH` | `/config/overrides.yaml` | Path to the overrides config file |
 | `GITHUB_TOKEN` | _(none)_ | GitHub personal access token (recommended to avoid rate limits) |
-| `DISCORD_TOKEN` | _(required for bot)_ | Discord bot token |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API base URL |
-| `OLLAMA_MODEL` | `qwen2.5:1.5b` | Ollama model to use for digest summaries |
-| `DIGEST_CRON` | `0 9 * * *` | When to send summaries via the Discord bot |
-| `DIGEST_CHANNEL_ID` | _(none)_ | Channel for the scheduled digest; without it only `/digest` works |
-| `ANNOTATIONS_URL` | _(none)_ | Notes on pending updates to lead the digest with (see below) |
-| `EXTRA_ANNOTATIONS_URLS` | _(none)_ | Other messages to send first, such as security verdicts (see below) |
+| `OLLAMA_MODEL` | `qwen2.5:1.5b` | Ollama model for the page's "Generate Patch Notes" summaries |
 
 
 ## Updates are offered once the image exists
@@ -74,8 +65,8 @@ tag the running image uses (its `v`, a variant such as `-alpine`, a shortened
 version) and asks the registry whether one exists.
 
 The newest release with an image is the update. Newer ones are shown as
-"released, image not published yet" on the page, in the CLI and in the Discord
-digest, and don't count as an update. In `GET /api/updates` each service has:
+"released, image not published yet" on the page and in the CLI, and don't
+count as an update. In `GET /api/updates` each service has:
 
 - `latest_tag`: the image tag found for `latest_version`
 - `waiting`: releases with no image yet
@@ -83,49 +74,6 @@ digest, and don't count as an update. In `GET /api/updates` each service has:
   are offered unchecked: the registry didn't answer, the running tag has no
   version in it (`sha-1a2b3c`), or nothing was found for a release more than
   a week old, which means the tag guess is wrong rather than the image late
-
-## Annotations in the Discord digest (optional)
-
-Digest messages use Discord's Components v2 layouts: a coloured container
-with a link button beside each service.
-
-If the bot has `ANNOTATIONS_URL`, its digest starts with the updates that URL
-annotates, grouped, each with a short note and a link. Services it doesn't
-cover get the Ollama summary in a second message. Without it, or if it can't
-be reached, the bot sends the Ollama digest alone.
-
-The tracker doesn't care what produces the annotations. For example,
-[alpenglow's dashboard](https://github.com/gizmo385/alpenglow/tree/main/alpenglow_dashboard)
-files a Vikunja card for each pending update, has Claude assess it, and serves
-the verdicts this way. The URL must return JSON like:
-
-```json
-{
-  "title": "Upgrades",
-  "link_label": "Open card",
-  "groups": [{"name": "Easy", "emoji": "🟢"}, {"name": "Hold", "emoji": "🔴"}],
-  "items": [
-    {"repo": "Freika/dawarich", "title": "Dawarich 1.20.0 → 1.20.1",
-     "group": "Easy", "note": "Bug-fix patch.", "url": "https://board.example.com/tasks/9"}
-  ]
-}
-```
-
-`repo` is the GitHub `owner/name` the tracker follows for that service.
-`groups` sets the display order, and only `repo` is required on an item.
-Other fields are ignored, so a service can serve the same JSON to other
-consumers. `GET /api/updates` on the web server gives you the tracker's side
-to build annotations from.
-
-### Extra messages
-
-`EXTRA_ANNOTATIONS_URLS` (space or comma separated) adds messages in the same
-JSON format that aren't about pending updates. alpenglow's dashboard uses it
-for Claude's security verdicts on open CVE findings. Each one is sent before
-the rest of the digest, even on a day with no updates, and left out when it
-has no items. Their items don't need `repo`, and they don't change which
-updates the Ollama summary covers. An optional `"accent"` (`"red"`,
-`"amber"`, `"green"` or `"blue"`) colours the message; the default is blue.
 
 ## Running with Docker Compose
 
@@ -139,13 +87,14 @@ services:
       - ./overrides.yaml:/config/overrides.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     env_file: .env
-
-  image-tracker-bot:
-    image: ghcr.io/gizmo385/image-updates-tracker-bot:main
-    volumes:
-      - ./overrides.yaml:/config/overrides.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    env_file: .env
 ```
 
-Both containers need read access to the Docker socket to inspect running containers.
+The container needs read access to the Docker socket to inspect running containers.
+
+## Notifications
+
+The tracker reports what exists upstream and doesn't send messages itself.
+`GET /api/updates` has everything a notifier needs: each service's current and
+latest version, the image tag to pull, its newer releases, and releases still
+waiting on an image. (It used to ship a Discord bot; that was removed in favour
+of whatever consumes the API deciding what to say.)

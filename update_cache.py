@@ -230,7 +230,7 @@ async def fetch(
 
 
 async def refresh_async(overrides_path: Path) -> None:
-    """Refresh the cache (async — for use in the discord bot)."""
+    """Refresh the cache."""
     with tracer.start_as_current_span("refresh update cache") as span:
         try:
             services = await fetch(overrides_path)
