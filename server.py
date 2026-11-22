@@ -59,6 +59,14 @@ def api_updates():
             "current_version": s.current_version,
             "latest_version": s.latest_version,
             "has_updates": s.has_updates,
+            # The image tag the registry has for latest_version ("" if unchecked).
+            "latest_tag": s.latest_tag,
+            "image_verified": s.image_verified,
+            # Released on GitHub, with no image in the registry yet.
+            "waiting": [
+                {"tag": r.tag, "url": r.url, "published_at": r.published_at}
+                for r in s.waiting
+            ],
             "html_url": s.html_url,
             "image_url": s.image_url,
             "releases": [

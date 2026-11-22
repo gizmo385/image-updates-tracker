@@ -82,6 +82,8 @@ def main(overrides: Path, images: tuple[str, ...], verbose: bool, log_level: str
                 f"  {svc.name:<22} {svc.current_version} → {svc.latest_version}"
                 f"  ({n} release{'s' if n != 1 else ''})"
             )
+            if svc.waiting:
+                click.echo(f"      {svc.waiting[0].tag} released, image not published yet")
             if verbose:
                 for release in svc.releases:
                     click.echo(f"      {release.tag}  {release.name}")
@@ -90,6 +92,8 @@ def main(overrides: Path, images: tuple[str, ...], verbose: bool, log_level: str
         click.secho(f"\nUp to date ({len(up_to_date)}):", bold=True)
         for svc in up_to_date:
             click.echo(f"  {svc.name:<22} {svc.current_version}")
+            if svc.waiting:
+                click.echo(f"      {svc.waiting[0].tag} released, image not published yet")
 
     raise SystemExit(1 if with_updates else 0)
 

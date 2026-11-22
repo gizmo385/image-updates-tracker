@@ -65,7 +65,7 @@
         <tr>
           <td><a href="{{ s.html_url }}">{{ s.name }}</a></td>
           <td>{% if s.image_url %}<a href="{{ s.image_url }}">{{ s.image }}</a>{% else %}{{ s.image }}{% endif %}</td>
-          <td>{{ s.current_version }} &rarr; {{ s.latest_version }}</td>
+          <td>{{ s.current_version }} &rarr; {{ s.latest_version }}{% if s.waiting %}<br><small title="Released on GitHub; the image isn't in the registry yet">{{ s.waiting[0].tag }} released, image not published yet</small>{% endif %}</td>
           <td>{{ s.version_source }}</td>
           <td>{{ s.releases | length }} release{{ 's' if s.releases | length != 1 else '' }}</td>
         </tr>
@@ -85,7 +85,7 @@
         <tr>
           <td><a href="{{ s.html_url }}">{{ s.name }}</a></td>
           <td>{% if s.image_url %}<a href="{{ s.image_url }}">{{ s.image }}</a>{% else %}{{ s.image }}{% endif %}</td>
-          <td>{{ s.current_version }}</td>
+          <td>{{ s.current_version }}{% if s.waiting %}<br><small title="Released on GitHub; the image isn't in the registry yet">{{ s.waiting[0].tag }} released, image not published yet</small>{% endif %}</td>
           <td>{{ s.version_source }}</td>
         </tr>
         {% endfor %}

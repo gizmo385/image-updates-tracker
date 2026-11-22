@@ -2,7 +2,7 @@ import asyncio
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import docker
@@ -18,6 +18,7 @@ from docker_release_feeds import (
     resolve_image,
     strip_tag,
 )
+import image_tags
 from github_releases import Release, get_releases_since
 from registry import resolve_version_from_registry
 
@@ -40,6 +41,12 @@ class ServiceStatus:
     releases: list[Release]
     image: str = ""
     version_source: str = ""
+    # Newer releases whose image isn't in the registry yet (see image_tags.py).
+    # ``releases`` holds only what can be pulled when image_verified is set.
+    waiting: list[Release] = field(default_factory=list)
+    # The image tag found in the registry for the newest of ``releases``.
+    latest_tag: str = ""
+    image_verified: bool = False
 
     @property
     def has_updates(self) -> bool:
@@ -183,6 +190,20 @@ async def fetch(
             else:
                 releases_list.append(result)
 
+        # Only offer a release once its image is in the registry.
+        registry = image_tags.Registry(client)
+        checks = await asyncio.gather(
+            *[
+                image_tags.check(registry, image, version, releases)
+                for (_o, _r, version, image, _vs), releases in zip(items, releases_list)
+            ],
+            return_exceptions=True,
+        )
+        for (owner, repo, _v, _i, _vs), result in zip(items, checks):
+            if isinstance(result, BaseException):
+                logger.warning("Image tag check failed for %s/%s: %r", owner, repo, result)
+        checks = [None if isinstance(c, BaseException) else c for c in checks]
+
     def _display_name(owner: str, repo: str) -> str:
         key = f"{owner}/{repo}"
         if key in names:
@@ -195,12 +216,15 @@ async def fetch(
             owner=owner,
             repo=repo,
             current_version=version,
-            releases=releases,
+            releases=releases if checked is None else checked.available,
             image=image,
             version_source=version_source,
+            waiting=[] if checked is None else checked.waiting,
+            latest_tag="" if checked is None else checked.latest_tag,
+            image_verified=checked is not None,
         )
-        for (owner, repo, version, image, version_source), releases in zip(
-            items, releases_list
+        for (owner, repo, version, image, version_source), releases, checked in zip(
+            items, releases_list, checks
         )
     }
 

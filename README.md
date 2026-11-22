@@ -64,6 +64,26 @@ cp .env.example .env
 | `EXTRA_ANNOTATIONS_URLS` | _(none)_ | Other messages to send first, such as security verdicts (see below) |
 
 
+## Updates are offered once the image exists
+
+A GitHub release often appears before its image does (Docker official images
+can lag by days), and release names don't always match image tags (ClickHouse
+releases `v26.10.10.3-stable`, tagged `26.10.10.3`). For each service with
+newer releases the tracker works out the tags the release would have from the
+tag the running image uses (its `v`, a variant such as `-alpine`, a shortened
+version) and asks the registry whether one exists.
+
+The newest release with an image is the update. Newer ones are shown as
+"released, image not published yet" on the page, in the CLI and in the Discord
+digest, and don't count as an update. In `GET /api/updates` each service has:
+
+- `latest_tag`: the image tag found for `latest_version`
+- `waiting`: releases with no image yet
+- `image_verified`: `false` when the check couldn't decide and the releases
+  are offered unchecked: the registry didn't answer, the running tag has no
+  version in it (`sha-1a2b3c`), or nothing was found for a release more than
+  a week old, which means the tag guess is wrong rather than the image late
+
 ## Annotations in the Discord digest (optional)
 
 Digest messages use Discord's Components v2 layouts: a coloured container
